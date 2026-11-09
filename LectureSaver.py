@@ -79,9 +79,15 @@ def fetch(url, dest, cookie, log, progress):
 
 def find_ffmpeg():
     """Use the ffmpeg.exe shipped next to the app; fall back to one installed on the system."""
-    app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
-        else os.path.dirname(os.path.abspath(__file__))
-    for candidate in (os.path.join(app_dir, "ffmpeg.exe"), os.path.join(app_dir, "ffmpeg")):
+    folders = []
+    if getattr(sys, "frozen", False):
+        folders.append(os.path.dirname(sys.executable))   # next to the .exe (installed or portable folder)
+        if hasattr(sys, "_MEIPASS"):
+            folders.append(sys._MEIPASS)                  # inside a single-file .exe
+    else:
+        folders.append(os.path.dirname(os.path.abspath(__file__)))
+    for folder in folders:
+        candidate = os.path.join(folder, "ffmpeg.exe")
         if os.path.isfile(candidate):
             return candidate
     return shutil.which("ffmpeg")
