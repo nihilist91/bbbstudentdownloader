@@ -86,4 +86,4 @@ The `ffmpeg` folder, `dist`, and `build` are not stored in the repository. Uploa
 
 ## License
 
-Add a license of your choice before publishing (for example MIT).
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
