@@ -1,0 +1,11 @@
+# Build output and working files
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# Large or licensed binaries: never commit these to the repo.
+# Share the installer through GitHub Releases instead.
+ffmpeg/
+*.exe
