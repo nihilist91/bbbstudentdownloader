@@ -20,6 +20,8 @@ Save BigBlueButton lecture recordings (slides and sound) to your computer, as a 
 
 ## How to use
 
+For a screen-by-screen explanation of every button and message, see the [Guide](GUIDE.md).
+
 1. **Get the recording link.** Open the lecture on your course platform and click the recording. Right-click the video area and choose **Open frame in new tab**. The address should contain `/playback/presentation/`. Copy it.
 2. **Paste it** into the *Recording link* box, or click **Paste**.
 3. **Choose where to save.** The default is `Downloads\Lectures`. Use **Browse** to pick another folder.
@@ -84,4 +86,4 @@ The `ffmpeg` folder, `dist`, and `build` are not stored in the repository. Uploa
 
 ## License
 
-Add a license of your choice before publishing (for example MIT).
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
