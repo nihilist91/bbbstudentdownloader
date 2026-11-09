@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Lecture Saver - save BigBlueButton lecture recordings with a clean, modern window.
+bbbstudentDownloader - save BigBlueButton lecture recordings with a clean, modern window.
 
 Saves each lecture into a folder named after the course, keeps only the finished
 files, and removes the working pieces.
 
 Setup:   pip install customtkinter
-Run:     python LectureSaver.py
-Build:   pyinstaller --onefile --windowed --collect-all customtkinter --name LectureSaver LectureSaver.py
+Run:     python bbbStudentDownloader.py
+Build:   pyinstaller --onefile --windowed --collect-all customtkinter --name bbbStudentDownloader bbbStudentDownloader.py
 """
 import html
 import os
@@ -241,7 +241,7 @@ class App(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title("Lecture Saver")
+        self.title("bbbstudentDownloader")
         self.geometry("640x780")
         self.minsize(600, 740)
         self.configure(fg_color=BG)
@@ -282,7 +282,7 @@ class App(ctk.CTk):
     def build_header(self):
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=28, pady=(26, 6))
-        ctk.CTkLabel(head, text="Lecture Saver", font=self.f_title, text_color=TEXT).pack(anchor="w")
+        ctk.CTkLabel(head, text="bbbstudentDownloader", font=self.f_title, text_color=TEXT).pack(anchor="w")
         ctk.CTkLabel(head, text="Slides and sound from your recordings, saved neatly by course.",
                      font=self.f_body, text_color=MUTED).pack(anchor="w", pady=(2, 0))
 
@@ -380,7 +380,7 @@ class App(ctk.CTk):
         if find_ffmpeg():
             self.ff_pill.configure(text="Converter ready", text_color="#06281C", fg_color=OK)
         else:
-            self.ff_pill.configure(text="Converter missing: reinstall Lecture Saver", text_color="#3A2A00",
+            self.ff_pill.configure(text="Converter missing: reinstall bbbstudentDownloader", text_color="#3A2A00",
                                    fg_color=WARN)
 
     def log(self, msg):

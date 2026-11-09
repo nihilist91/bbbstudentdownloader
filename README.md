@@ -1,4 +1,4 @@
-# Lecture Saver
+# bbbstudentDownloader
 
 Save BigBlueButton lecture recordings (slides and sound) to your computer, as a clean file named after the course.
 
@@ -13,10 +13,10 @@ Save BigBlueButton lecture recordings (slides and sound) to your computer, as a 
 
 ## Install (for users)
 
-1. Go to the **Releases** page of this repository and download `LectureSaverSetup.exe`.
+1. Go to the **Releases** page of this repository and download `bbbStudentDownloaderSetup.exe`.
 2. Run it. If Windows shows "Windows protected your PC", click **More info → Run anyway**. This happens because the app is not digitally signed.
 3. Follow the installer. It includes everything the app needs, including ffmpeg, so you don't install anything else.
-4. Open **Lecture Saver** from the Start menu or the desktop shortcut.
+4. Open **bbbstudentDownloader** from the Start menu or the desktop shortcut.
 
 ## How to use
 
@@ -54,7 +54,7 @@ Never paste your account password into the app.
 
 | What you see | What it means | What to do |
 |---|---|---|
-| "Converter missing" in the footer | `ffmpeg.exe` is not next to the app | Reinstall with the official `LectureSaverSetup.exe` |
+| "Converter missing" in the footer | `ffmpeg.exe` is not next to the app | Reinstall with the official `bbbStudentDownloaderSetup.exe` |
 | "No audio or video was found" | The link needs a login, or it's not a recording link | Check the link contains `/playback/presentation/`, or turn on the login option |
 | "Couldn't save" with an HTTP error | The server refused a file | Try again, or use the login option |
 | Files are kept as `.webm` | The converter was missing, so the originals were kept | Reinstall. `.webm` files still play in VLC |
@@ -67,14 +67,14 @@ You need Windows, Python 3.9 or newer, and [Inno Setup](https://jrsoftware.org/i
 
 ```
 pip install --upgrade customtkinter pyinstaller
-python -m PyInstaller --clean --noconfirm --onefile --windowed --collect-all customtkinter --name LectureSaver LectureSaver.py
+python -m PyInstaller --clean --noconfirm --onefile --windowed --collect-all customtkinter --name bbbStudentDownloader bbbStudentDownloader.py
 ```
 
 Then build the installer:
 
 1. Create an `ffmpeg` folder in the project and copy `ffmpeg.exe` into it. Download ffmpeg from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (the "release essentials" build). Copy any license files into the same folder.
 2. Open `setup.iss` in Inno Setup and press **F9**.
-3. The installer is written to `Output\LectureSaverSetup.exe`.
+3. The installer is written to `Output\bbbStudentDownloaderSetup.exe`.
 
 The `ffmpeg` folder, `dist`, and `build` are not stored in the repository. Upload the built installer to a GitHub Release.
 

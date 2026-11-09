@@ -1,89 +1,112 @@
-# Lecture Saver
+# bbbstudentDownloader: Screen-by-Screen Guide
 
-Save BigBlueButton lecture recordings (slides and sound) to your computer, as a clean file named after the course.
+This guide explains what each part of the app does, what each message means, and what ends up in your folder.
 
-![status](https://img.shields.io/badge/platform-Windows-blue) ![python](https://img.shields.io/badge/python-3.9%2B-green)
+---
 
-## What it does
+## Part 1: The bbbstudentDownloader window
 
-- Takes a recording link from your course platform.
-- Downloads the audio and the screen-share parts of the recording.
-- Converts them into ready-to-play files (`.m4a` for sound, `.mp4` when there is a screen share).
-- Names the output after the course and deletes the working files, so the folder stays clean.
+### The step bar (top)
 
-## Install (for users)
+The four labels show the work in order. The current step is bright white. Finished steps show a green ✓.
 
-1. Go to the **Releases** page of this repository and download `LectureSaverSetup.exe`.
-2. Run it. If Windows shows "Windows protected your PC", click **More info → Run anyway**. This happens because the app is not digitally signed.
-3. Follow the installer. It includes everything the app needs, including ffmpeg, so you don't install anything else.
-4. Open **Lecture Saver** from the Start menu or the desktop shortcut.
+| Step | What's happening |
+|---|---|
+| **1 Download** | The app fetches the recording's pieces from the server. |
+| **2 Audio** | It converts the lecture's sound into an `.m4a` file. |
+| **3 Video** | It builds the screen-share video, if the recording has one. If not, this step is skipped. |
+| **4 Tidy up** | It names the files after the course, deletes the working files, and moves everything into one folder. |
 
-## How to use
+### Recording link
 
-For a screen-by-screen explanation of every button and message, see the [Guide](GUIDE.md).
+Paste the playback link here. It should contain `/playback/presentation/`. The **Paste** button fills the box from your clipboard.
 
-1. **Get the recording link.** Open the lecture on your course platform and click the recording. Right-click the video area and choose **Open frame in new tab**. The address should contain `/playback/presentation/`. Copy it.
-2. **Paste it** into the *Recording link* box, or click **Paste**.
-3. **Choose where to save.** The default is `Downloads\Lectures`. Use **Browse** to pick another folder.
-4. Click **Save lecture**. The four steps at the top light up as the app works:
-   - **Download**: fetches the recording pieces.
-   - **Audio**: creates the sound file.
-   - **Video**: builds the screen-share video, if the recording has one.
-   - **Tidy up**: names the files after the course and deletes the working files.
-5. Click **Open folder** when it says it's done.
+### Save into
 
-The output folder contains only the finished files, for example:
+This is where the course folder will be created. The default is `Downloads\Lectures`. Click **Browse** to pick a different folder.
 
-```
-Course Name/
-  Course Name (audio).m4a
-  Course Name.mp4        (only if there was a screen share)
-```
+### This link needs a login
 
-### Link needs a login?
+Leave this **off** for most recordings. Turn it on only if the app says it can't find the recording. It then shows a box for your browser's cookie text. Treat that text like a password and don't share it.
 
-If the app says it can't find the recording, turn on **This link needs a login**, then paste your browser's cookie text into the box that appears. The cookie is your login session, so treat it like a password:
+### Save lecture (the big purple button)
 
-- Get it from your browser's developer tools (F12 → Application or Storage → Cookies), copy the `name=value` pairs, and paste them in.
-- Don't share it with anyone or post it online.
-- The app keeps it only in memory for that session and does not save it to disk.
+This starts the process. Its label changes:
 
-Never paste your account password into the app.
+| Label | Meaning |
+|---|---|
+| **Save lecture** | Ready to start. |
+| **Working…** | In progress. The button is greyed out, so don't close the window. |
+| **Save another lecture** | The last lecture finished. Paste a new link to save another one. |
+| **Try again** | Something went wrong. Check the details (see below) and try again. |
 
-## Troubleshooting
+### Progress bar and status line
 
-| What you see | What it means | What to do |
+The bar fills from left to right as the app works. The line under it describes the current step, for example "Downloading the recording…" or "Making the audio file…".
+
+### Show details
+
+Click this to open the log. It lists each file as it's downloaded and each conversion as it finishes. If something fails, the error appears here first. Copy it when you ask for help.
+
+### Footer
+
+| Badge | Meaning |
+|---|---|
+| **Converter ready** (green) | The converter that makes the audio and video files is available. Everything works. |
+| **Converter missing** (yellow) | The converter isn't found. Reinstall bbbstudentDownloader using the official installer. The app will still save the original `.webm` files. |
+
+### Open folder (bottom right)
+
+This button turns green when a lecture is saved. Click it to open the course folder.
+
+---
+
+## Part 2: The recording page
+
+After you open the recording link in a new tab, you'll see the BigBlueButton player. Here's what its parts are and how they relate to bbbstudentDownloader.
+
+| Part of the page | What it is | Saved by bbbstudentDownloader? |
 |---|---|---|
-| "Converter missing" in the footer | `ffmpeg.exe` is not next to the app | Reinstall with the official `LectureSaverSetup.exe` |
-| "No audio or video was found" | The link needs a login, or it's not a recording link | Check the link contains `/playback/presentation/`, or turn on the login option |
-| "Couldn't save" with an HTTP error | The server refused a file | Try again, or use the login option |
-| Files are kept as `.webm` | The converter was missing, so the originals were kept | Reinstall. `.webm` files still play in VLC |
+| **Address bar** | The playback link you copy. | You copy this link. |
+| **Title** (for example "Séance 19-10-2026 à 19h30") | The session name. The app uses the course name from the recording's details to name the output. | Used for the file names. |
+| **Left panel: chat** | The messages from the live session, with timestamps. | **No.** The chat isn't included in the output. |
+| **Bottom strip: slide thumbnails** | Each small picture is one slide. A monitor icon marks a screen-share segment. | Screen-share segments are included. Slides are **not yet** included (see Known limits). |
+| **Big play button** | Plays the recording in the browser. | Not needed for the app. |
 
-Click **Show details** in the app to see the full log.
+---
 
-## Building from source (for developers)
+## Part 3: What ends up in your folder
 
-You need Windows, Python 3.9 or newer, and [Inno Setup](https://jrsoftware.org/isinfo.php).
+The app creates one folder per lecture, named after the course:
 
 ```
-pip install --upgrade customtkinter pyinstaller
-python -m PyInstaller --clean --noconfirm --onefile --windowed --collect-all customtkinter --name LectureSaver LectureSaver.py
+Downloads\Lectures\
+  Course Name\
+    Course Name (audio).m4a    ← the lecture's sound (always, when there's audio)
+    Course Name.mp4            ← screen share + sound (only if the session had a screen share)
 ```
 
-Then build the installer:
+If the converter was missing, you'll get the original `Course Name.webm` and, if there was a screen share, `Course Name (screen).webm` instead. These files play in VLC.
 
-1. Create an `ffmpeg` folder in the project and copy `ffmpeg.exe` into it. Download ffmpeg from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (the "release essentials" build). Copy any license files into the same folder.
-2. Open `setup.iss` in Inno Setup and press **F9**.
-3. The installer is written to `Output\LectureSaverSetup.exe`.
+Working files, such as the metadata and slide data, are deleted automatically.
 
-The `ffmpeg` folder, `dist`, and `build` are not stored in the repository. Upload the built installer to a GitHub Release.
+---
 
-## Notes and responsible use
+## Known limits
 
-- Only download recordings you're allowed to access. Check your institution's policy before sharing any recording.
-- ffmpeg is distributed under the GPL/LGPL licenses. The installer includes its license files.
-- The app is unsigned, so Windows SmartScreen will show a warning the first time.
+- **Slides are not yet included.** The output contains the screen-share video and the audio. Presentation slides that were shown in the normal slide view are not yet built into the video.
+- **Chat is not saved.**
+- **Downloading takes a while.** Longer recordings take longer, especially if the server is slow.
+- **Login links.** Some recordings need you to be logged in. Use the login option described above.
 
-## License
+---
 
-Add a license of your choice before publishing (for example MIT).
+## Quick fixes
+
+| Problem | Try this |
+|---|---|
+| "No audio or video was found" | Check the link contains `/playback/presentation/`. If it does, turn on the login option. |
+| Footer says "Converter missing" | Reinstall with the official installer. |
+| Files end in `.webm` | The converter was missing when you saved. Reinstall, then save again. |
+| The window closed during saving | Delete the partly saved folder and start again. |
+| Anything else | Click **Show details**, copy the log, and ask for help. |
