@@ -128,6 +128,7 @@ def build_gui():
             self.out_var = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Downloads", "Lectures"))
             self.cookie_var = tk.StringVar()
             self.cookie_on = tk.BooleanVar(value=False)
+            self.last_sniffed_clip = ""
 
             # Export selection options
             self.opt_video = tk.BooleanVar(value=True)
@@ -153,7 +154,9 @@ def build_gui():
 
             self.build_ui()
             self.check_ffmpeg()
+            self.check_updates_background()
             self.after(100, self.poll)
+            self.after(1000, self.poll_clipboard)
 
         def build_ui(self):
             # Header
@@ -163,8 +166,19 @@ def build_gui():
             top_row = ctk.CTkFrame(head, fg_color="transparent")
             top_row.pack(fill="x")
             ctk.CTkLabel(top_row, text="🚀 BBB StudyForge", font=self.f_title, text_color=TEXT).pack(side="left")
-            self.ff_pill = ctk.CTkLabel(top_row, text="", corner_radius=10, height=26, font=self.f_small, padx=10)
-            self.ff_pill.pack(side="right")
+            
+            # Action & status pills
+            self.pills_frame = ctk.CTkFrame(top_row, fg_color="transparent")
+            self.pills_frame.pack(side="right")
+
+            self.update_btn = ctk.CTkButton(
+                self.pills_frame, text="", corner_radius=10, height=26, font=self.f_small,
+                fg_color="#3B82F6", hover_color="#2563EB", text_color="#FFFFFF"
+            )
+            # update_btn starts unmapped, shown only when an update is found
+
+            self.ff_pill = ctk.CTkLabel(self.pills_frame, text="", corner_radius=10, height=26, font=self.f_small, padx=10)
+            self.ff_pill.pack(side="right", padx=(6, 0))
 
             ctk.CTkLabel(head, text="Save full lecture videos, slides deck (PDF), transcripts & AI study notes.",
                          font=self.f_body, text_color=MUTED).pack(anchor="w", pady=(2, 0))
@@ -328,6 +342,44 @@ def build_gui():
             self.ff_auto_btn = ctk.CTkButton(btn_row, text="📥 1-Click Auto Install FFmpeg", height=36, corner_radius=10,
                                              fg_color=OK, text_color="#000", font=self.f_small, command=self.auto_install_ff)
             self.ff_auto_btn.pack(side="left")
+
+        def poll_clipboard(self):
+            """
+            Smart Link Sniffer: Checks the clipboard for BigBlueButton recording links.
+            If a new BBB link is copied, automatically fills the URL and inspects it.
+            """
+            try:
+                clip = self.clipboard_get().strip()
+                if clip and clip != self.last_sniffed_clip and clip != self.url_var.get().strip():
+                    is_bbb = ("playback/presentation" in clip) or ("meetingId=" in clip) or ("/presentation/" in clip)
+                    if is_bbb and (clip.startswith("http://") or clip.startswith("https://")):
+                        self.last_sniffed_clip = clip
+                        self.url_var.set(clip)
+                        self.status_lbl.configure(text="📋 Auto-detected BigBlueButton link from clipboard!", text_color=ACCENT)
+                        self.inspect_link()
+            except Exception:
+                pass
+            self.after(1500, self.poll_clipboard)
+
+        def check_updates_background(self):
+            """Checks GitHub Releases API in background for newer versions."""
+            def _check():
+                try:
+                    import urllib.request
+                    import json
+                    api_url = "https://api.github.com/repos/nihilist91/bbbstudentdownloader/releases/latest"
+                    req = urllib.request.Request(api_url, headers={"User-Agent": "bbbStudentDownloader"})
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode())
+                        tag = data.get("tag_name", "").strip()
+                        html_url = data.get("html_url", "https://github.com/nihilist91/bbbstudentdownloader/releases")
+                        curr_version = "v2.0"
+                        if tag and tag != curr_version:
+                            self.q.put(("update_available", (tag, html_url)))
+                except Exception:
+                    pass
+
+            threading.Thread(target=_check, daemon=True).start()
 
         def check_ffmpeg(self):
             if find_ffmpeg():
@@ -512,6 +564,14 @@ def build_gui():
                         self.inspect_details.configure(text=val)
                     elif kind == "check_ff":
                         self.check_ffmpeg()
+                    elif kind == "update_available":
+                        tag, url = val
+                        import webbrowser
+                        self.update_btn.configure(
+                            text=f"✨ Update {tag} Available",
+                            command=lambda u=url: webbrowser.open(u)
+                        )
+                        self.update_btn.pack(side="right", padx=(0, 6))
                     elif kind == "done":
                         self.finish(val)
                     elif kind == "batch_done":
