@@ -22,12 +22,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install customtkinter pyinstaller pillow
+          pip install -r requirements.txt
 
       - name: Run Test Suite
         run: |
@@ -55,15 +54,15 @@ jobs:
           Copy-Item "dist\bbbStudentDownloader.exe" "dist\bbbStudentDownloader-Portable.exe"
           Write-Host "Portable build complete: dist\bbbStudentDownloader-Portable.exe"
 
-      - name: Install Inno Setup
+      - name: Compile Inno Setup Installer
         shell: powershell
         run: |
-          choco install innosetup --no-progress
-
-      - name: Build Inno Setup Installer
-        shell: powershell
-        run: |
-          Write-Host "Compiling Windows installer..."
+          if (!(Get-Command iscc -ErrorAction SilentlyContinue)) {
+            Write-Host "Installing Inno Setup via Chocolatey..."
+            choco install innosetup --no-progress
+            $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
+          }
+          Write-Host "Compiling Windows installer with ISCC..."
           & "C:\Program Files (x86)\Inno Setup 6\iscc.exe" setup.iss
           Write-Host "Installer build complete: Output\bbbStudentDownloaderSetup.exe"
 
