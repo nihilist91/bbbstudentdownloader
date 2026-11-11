@@ -77,6 +77,16 @@ def build_gui():
     from tkinter import filedialog, messagebox
     import customtkinter as ctk
 
+    # Explicit Windows Application User Model ID (AppUserModelID) so Windows
+    # taskbar shows the custom icon instead of generic python/tk icon.
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            app_id = "nihilist.bbbstudentdownloader.studyforge.2.0"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        except Exception:
+            pass
+
     # Color Palette - Glassmorphism Midnight Dark
     BG = "#070B14"
     CARD = "#0F172A"
@@ -130,9 +140,12 @@ def build_gui():
             self.auto_trim = tk.BooleanVar(value=True)
             self.cut_time_var = tk.StringVar()
 
-            # Set window icon
+            # Set window & taskbar icon
             try:
-                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app_icon.ico")
+                base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+                icon_path = os.path.join(base_dir, "assets", "app_icon.ico")
+                if not os.path.isfile(icon_path):
+                    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app_icon.ico")
                 if os.path.isfile(icon_path):
                     self.iconbitmap(icon_path)
             except Exception:
@@ -503,6 +516,7 @@ def build_gui():
                         self.finish(val)
                     elif kind == "batch_done":
                         self.batch_btn.configure(text="🚀 Start Batch Download", state="normal")
+                        self.notify_finish("Batch Complete", f"Successfully processed {val} lectures.")
                         messagebox.showinfo("Batch Finished", f"Successfully processed {val} lectures.")
                     elif kind == "error":
                         self.fail(val)
@@ -510,19 +524,46 @@ def build_gui():
                 pass
             self.after(100, self.poll)
 
+        def notify_finish(self, title: str, message: str):
+            """Plays a completion chime/sound and displays a notification."""
+            def _play():
+                played = False
+                if sys.platform.startswith("win"):
+                    try:
+                        import winsound
+                        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                        played = True
+                    except Exception:
+                        pass
+                if not played:
+                    try:
+                        self.bell()
+                    except Exception:
+                        pass
+
+            threading.Thread(target=_play, daemon=True).start()
+
         def finish(self, folder):
             self.busy = False
             self.result_folder = folder
             self.bar.set(1.0)
-            self.status_lbl.configure(text=f"Saved: {os.path.basename(folder)}", text_color=OK)
+            lecture_name = os.path.basename(folder)
+            self.status_lbl.configure(text=f"Saved: {lecture_name}", text_color=OK)
             self.go_btn.configure(text="⚡ Save Another Lecture", state="normal", fg_color=ACCENT_HOVER)
             self.open_btn.configure(state="normal", fg_color=OK, text_color="#000")
+            self.notify_finish("Download Complete", f"Saved: {lecture_name}")
 
         def fail(self, msg):
             self.busy = False
             self.bar.set(0)
             self.status_lbl.configure(text="Something went wrong", text_color=BAD)
             self.go_btn.configure(text="Try Again", state="normal", fg_color=ACCENT_HOVER)
+            if sys.platform.startswith("win"):
+                try:
+                    import winsound
+                    winsound.MessageBeep(winsound.MB_ICONHAND)
+                except Exception:
+                    pass
             messagebox.showerror("Download Error", msg)
 
     App().mainloop()
