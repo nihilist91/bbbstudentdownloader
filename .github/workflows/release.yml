@@ -1,0 +1,88 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Binaries (Portable & Setup)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter pyinstaller pillow
+
+      - name: Run Test Suite
+        run: |
+          python test_suite.py
+
+      - name: Download & Extract FFmpeg Essentials
+        shell: powershell
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Write-Host "Downloading FFmpeg release essentials..."
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Write-Host "Extracting FFmpeg..."
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_temp"
+          New-Item -ItemType Directory -Force -Path "ffmpeg"
+          Get-ChildItem -Path "ffmpeg_temp" -Filter "ffmpeg.exe" -Recurse | Copy-Item -Destination "ffmpeg\ffmpeg.exe"
+          Get-ChildItem -Path "ffmpeg_temp" -Filter "LICENSE*" -Recurse | Copy-Item -Destination "ffmpeg\"
+          Remove-Item -Recurse -Force "ffmpeg_temp", "ffmpeg.zip"
+          Write-Host "FFmpeg successfully staged in ./ffmpeg"
+
+      - name: Build Portable Executable (PyInstaller)
+        shell: powershell
+        run: |
+          Write-Host "Building standalone executable..."
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --collect-all customtkinter --name bbbStudentDownloader bbbStudentDownloader.py
+          Copy-Item "dist\bbbStudentDownloader.exe" "dist\bbbStudentDownloader-Portable.exe"
+          Write-Host "Portable build complete: dist\bbbStudentDownloader-Portable.exe"
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Build Inno Setup Installer
+        shell: powershell
+        run: |
+          Write-Host "Compiling Windows installer..."
+          & "C:\Program Files (x86)\Inno Setup 6\iscc.exe" setup.iss
+          Write-Host "Installer build complete: Output\bbbStudentDownloaderSetup.exe"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bbbStudentDownloader-Windows-Binaries
+          path: |
+            dist/bbbStudentDownloader-Portable.exe
+            Output/bbbStudentDownloaderSetup.exe
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: Release ${{ github.ref_name }}
+          files: |
+            dist/bbbStudentDownloader-Portable.exe
+            Output/bbbStudentDownloaderSetup.exe
+          draft: false
+          prerelease: false
+          generate_release_notes: true

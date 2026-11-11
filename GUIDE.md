@@ -1,112 +1,72 @@
-# bbbstudentDownloader: Screen-by-Screen Guide
+# BBB StudyForge 2.0: Complete Student Guide
 
-This guide explains what each part of the app does, what each message means, and what ends up in your folder.
-
----
-
-## Part 1: The bbbstudentDownloader window
-
-### The step bar (top)
-
-The four labels show the work in order. The current step is bright white. Finished steps show a green ✓.
-
-| Step | What's happening |
-|---|---|
-| **1 Download** | The app fetches the recording's pieces from the server. |
-| **2 Audio** | It converts the lecture's sound into an `.m4a` file. |
-| **3 Video** | It builds the screen-share video, if the recording has one. If not, this step is skipped. |
-| **4 Tidy up** | It names the files after the course, deletes the working files, and moves everything into one folder. |
-
-### Recording link
-
-Paste the playback link here. It should contain `/playback/presentation/`. The **Paste** button fills the box from your clipboard.
-
-### Save into
-
-This is where the course folder will be created. The default is `Downloads\Lectures`. Click **Browse** to pick a different folder.
-
-### This link needs a login
-
-Leave this **off** for most recordings. Turn it on only if the app says it can't find the recording. It then shows a box for your browser's cookie text. Treat that text like a password and don't share it.
-
-### Save lecture (the big purple button)
-
-This starts the process. Its label changes:
-
-| Label | Meaning |
-|---|---|
-| **Save lecture** | Ready to start. |
-| **Working…** | In progress. The button is greyed out, so don't close the window. |
-| **Save another lecture** | The last lecture finished. Paste a new link to save another one. |
-| **Try again** | Something went wrong. Check the details (see below) and try again. |
-
-### Progress bar and status line
-
-The bar fills from left to right as the app works. The line under it describes the current step, for example "Downloading the recording…" or "Making the audio file…".
-
-### Show details
-
-Click this to open the log. It lists each file as it's downloaded and each conversion as it finishes. If something fails, the error appears here first. Copy it when you ask for help.
-
-### Footer
-
-| Badge | Meaning |
-|---|---|
-| **Converter ready** (green) | The converter that makes the audio and video files is available. Everything works. |
-| **Converter missing** (yellow) | The converter isn't found. Reinstall bbbstudentDownloader using the official installer. The app will still save the original `.webm` files. |
-
-### Open folder (bottom right)
-
-This button turns green when a lecture is saved. Click it to open the course folder.
+This guide explains how to use **BBB StudyForge** (formerly bbbStudentDownloader) to save complete lectures, slides, chat transcripts, and study notes from BigBlueButton.
 
 ---
 
-## Part 2: The recording page
+## Part 1: Finding Your Recording Link
 
-After you open the recording link in a new tab, you'll see the BigBlueButton player. Here's what its parts are and how they relate to bbbstudentDownloader.
+1. Open your course platform (Moodle, Canvas, Blackboard, or BigBlueButton).
+2. Open the recording you want to save.
+3. Check the browser address bar. The link should look like one of these:
+   - `https://.../playback/presentation/2.3/<meetingId>`
+   - `https://.../playback/presentation/2.0/playback.html?meetingId=<meetingId>`
+   - `https://.../presentation/<meetingId>`
+4. Copy the link.
 
-| Part of the page | What it is | Saved by bbbstudentDownloader? |
+> **Tip:** If the recording is embedded in an iframe inside Moodle, right-click inside the player area and choose **Open frame in new tab** to copy the clean URL.
+
+---
+
+## Part 2: Using the Desktop App
+
+### 1. The Quick Save Tab
+
+- **Recording Link:** Paste your copied link. Click **Inspect** to see an immediate preview of the lecture title, date, duration, and available tracks (Audio, Screen Share, Slides, Chat).
+- **Save Directory:** Choose where your lecture folder should be saved (default: `Downloads\Lectures`).
+- **This link needs a login:** Turn this on only if your school restricts recording access to logged-in sessions. Paste your browser session cookie into the box (e.g. `name=value; session=...`).
+- **Export Modules:**
+  - ☑ **Video (.mp4 + Chapters):** Builds the full 1080p lecture video with clickable slide chapter markers.
+  - ☑ **Audio (.m4a):** Extracts the lecture audio with course name and presenter tags.
+  - ☑ **Slides (PDF & Viewer):** Downloads all slides as high-resolution images, generates an offline presentation deck, and compiles a PDF.
+  - ☑ **Chat (.md & .html):** Saves the full public chat transcript.
+  - ☑ **AI Study Pack:** Creates an AI study guide with flashcard and quiz prompts ready for NotebookLM/ChatGPT.
+- Click **⚡ Download Complete Study Suite**.
+
+### 2. The Batch Queue Tab
+
+Need to download 5 or 10 lectures from your semester?
+1. Click the **Batch Queue** tab.
+2. Paste all your recording links, one per line.
+3. Click **🚀 Start Batch Download**.
+4. The app processes each lecture sequentially and alerts you when everything is finished!
+
+### 3. Settings & Tools Tab
+
+- **1-Click Auto Install FFmpeg:** If your computer does not have the media converter installed, click this button to automatically download and set it up.
+
+---
+
+## Part 3: Exploring Your Study Suite Folder
+
+Each saved lecture includes:
+
+| File | How to use it |
+|---|---|
+| `Course - Title.mp4` | Open in VLC or QuickTime. Click the chapter list in the player menu to jump to any slide! |
+| `Course - Title (audio).m4a` | Listen to the lecture like a podcast on your phone or computer. |
+| `Course - Title - Slides_Viewer.html` | Open in any browser. Press arrow keys to flip slides. Click **Print / Save as PDF** for vector PDF slides! |
+| `Course - Title - Slides.pdf` | Direct PDF file ready for stylus annotation on iPad or Android tablets. |
+| `Course - Title - Chat_Viewer.html` | Search for student questions, filter by presenter, and find links shared during class. |
+| `Course - Title - Chat.md` | Plain Markdown log of all chat messages. |
+| `Course - Title - AI_Study_Companion.md` | Contains slide text transcripts and pre-made prompts to feed into ChatGPT or NotebookLM for instant flashcards and practice exams. |
+
+---
+
+## Quick Troubleshooting
+
+| Problem | Cause | Solution |
 |---|---|---|
-| **Address bar** | The playback link you copy. | You copy this link. |
-| **Title** (for example "Séance 19-10-2026 à 19h30") | The session name. The app uses the course name from the recording's details to name the output. | Used for the file names. |
-| **Left panel: chat** | The messages from the live session, with timestamps. | **No.** The chat isn't included in the output. |
-| **Bottom strip: slide thumbnails** | Each small picture is one slide. A monitor icon marks a screen-share segment. | Screen-share segments are included. Slides are **not yet** included (see Known limits). |
-| **Big play button** | Plays the recording in the browser. | Not needed for the app. |
-
----
-
-## Part 3: What ends up in your folder
-
-The app creates one folder per lecture, named after the course:
-
-```
-Downloads\Lectures\
-  Course Name\
-    Course Name (audio).m4a    ← the lecture's sound (always, when there's audio)
-    Course Name.mp4            ← screen share + sound (only if the session had a screen share)
-```
-
-If the converter was missing, you'll get the original `Course Name.webm` and, if there was a screen share, `Course Name (screen).webm` instead. These files play in VLC.
-
-Working files, such as the metadata and slide data, are deleted automatically.
-
----
-
-## Known limits
-
-- **Slides are not yet included.** The output contains the screen-share video and the audio. Presentation slides that were shown in the normal slide view are not yet built into the video.
-- **Chat is not saved.**
-- **Downloading takes a while.** Longer recordings take longer, especially if the server is slow.
-- **Login links.** Some recordings need you to be logged in. Use the login option described above.
-
----
-
-## Quick fixes
-
-| Problem | Try this |
-|---|---|
-| "No audio or video was found" | Check the link contains `/playback/presentation/`. If it does, turn on the login option. |
-| Footer says "Converter missing" | Reinstall with the official installer. |
-| Files end in `.webm` | The converter was missing when you saved. Reinstall, then save again. |
-| The window closed during saving | Delete the partly saved folder and start again. |
-| Anything else | Click **Show details**, copy the log, and ask for help. |
+| "Converter missing" | FFmpeg binary not found | Go to the **Tools** tab in the app and click **1-Click Auto Install FFmpeg**. |
+| "No audio or video found" | Lecture requires login | Toggle **This link needs a login** and paste your session cookie. |
+| Slide video has no screen share | Teacher only used slides | BBB StudyForge automatically synthesizes a video from the slide images and audio! |

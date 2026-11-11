@@ -1,11 +1,18 @@
 # Build output and working files
 build/
 dist/
+Output/
 *.spec
 __pycache__/
+core/__pycache__/
 *.pyc
+
+# Staging & working directories
+__work_*/
+*.part
 
 # Large or licensed binaries: never commit these to the repo.
 # Share the installer through GitHub Releases instead.
 ffmpeg/
 *.exe
+*.zip

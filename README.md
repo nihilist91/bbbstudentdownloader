@@ -1,89 +1,99 @@
-# bbbstudentDownloader
+# BBB StudyForge 2.0 (bbbStudentDownloader)
 
-Save BigBlueButton lecture recordings (slides and sound) to your computer, as a clean file named after the course.
+> **The ultimate all-in-one BigBlueButton lecture archiver & AI study suite.**  
+> Save complete lecture videos, high-resolution slide decks (PDF), podcast-ready audio, interactive chat transcripts, and AI study notes with a single click.
 
-![status](https://img.shields.io/badge/platform-Windows-blue) ![python](https://img.shields.io/badge/python-3.9%2B-green)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue) ![python](https://img.shields.io/badge/python-3.9%2B-green) ![license](https://img.shields.io/badge/license-MIT-purple)
 
-## What it does
+---
 
-- Takes a recording link from your course platform.
-- Downloads the audio and the screen-share parts of the recording.
-- Converts them into ready-to-play files (`.m4a` for sound, `.mp4` when there is a screen share).
-- Names the output after the course and deletes the working files, so the folder stays clean.
+## 🌟 What's New in Version 2.0
 
-## Install (for users)
-
-1. Go to the **Releases** page of this repository and download `bbbStudentDownloaderSetup.exe`.
-2. Run it. If Windows shows "Windows protected your PC", click **More info → Run anyway**. This happens because the app is not digitally signed.
-3. Follow the installer. It includes everything the app needs, including ffmpeg, so you don't install anything else.
-4. Open **bbbstudentDownloader** from the Start menu or the desktop shortcut.
-
-## How to use
-
-For a screen-by-screen explanation of every button and message, see the [Guide](GUIDE.md).
-
-1. **Get the recording link.** Open the lecture on your course platform and click the recording. Right-click the video area and choose **Open frame in new tab**. The address should contain `/playback/presentation/`. Copy it.
-2. **Paste it** into the *Recording link* box, or click **Paste**.
-3. **Choose where to save.** The default is `Downloads\Lectures`. Use **Browse** to pick another folder.
-4. Click **Save lecture**. The four steps at the top light up as the app works:
-   - **Download**: fetches the recording pieces.
-   - **Audio**: creates the sound file.
-   - **Video**: builds the screen-share video, if the recording has one.
-   - **Tidy up**: names the files after the course and deletes the working files.
-5. Click **Open folder** when it says it's done.
-
-The output folder contains only the finished files, for example:
-
-```
-Course Name/
-  Course Name (audio).m4a
-  Course Name.mp4        (only if there was a screen share)
-```
-
-### Link needs a login?
-
-If the app says it can't find the recording, turn on **This link needs a login**, then paste your browser's cookie text into the box that appears. The cookie is your login session, so treat it like a password:
-
-- Get it from your browser's developer tools (F12 → Application or Storage → Cookies), copy the `name=value` pairs, and paste them in.
-- Don't share it with anyone or post it online.
-- The app keeps it only in memory for that session and does not save it to disk.
-
-Never paste your account password into the app.
-
-## Troubleshooting
-
-| What you see | What it means | What to do |
+| Feature | Original App | **BBB StudyForge 2.0** |
 |---|---|---|
-| "Converter missing" in the footer | `ffmpeg.exe` is not next to the app | Reinstall with the official `bbbStudentDownloaderSetup.exe` |
-| "No audio or video was found" | The link needs a login, or it's not a recording link | Check the link contains `/playback/presentation/`, or turn on the login option |
-| "Couldn't save" with an HTTP error | The server refused a file | Try again, or use the login option |
-| Files are kept as `.webm` | The converter was missing, so the originals were kept | Reinstall. `.webm` files still play in VLC |
+| **Lecture Video** | Only saved deskshare; skipped video if teacher used slides | **Synthesizes video from deskshare OR presentation slides!** |
+| **Video Chapters** | ❌ None | **Embeds clickable MP4 chapter markers for every slide** |
+| **Presentation Slides** | ❌ Skipped entirely ("Known limit") | **Exports slide deck as clean PDF & offline interactive HTML deck** |
+| **Public Chat Log** | ❌ Not saved ("Known limit") | **Formatted Markdown table + offline searchable interactive HTML app** |
+| **AI Study Companion** | ❌ None | **Extracts slide text, Q&A, and pre-crafts prompts for NotebookLM/ChatGPT** |
+| **Link Inspector** | ❌ None | **Instantly probes title, date, duration, and tracks before downloading** |
+| **Batch Queue** | ❌ 1 link at a time | **Paste 10+ links at once to download entire semester overnight** |
+| **FFmpeg Setup** | ❌ Manual reinstall if missing | **1-Click Auto-Installer built directly into the app** |
+| **Interfaces** | Desktop GUI only | **CustomTkinter Desktop GUI + Full CLI support** |
 
-Click **Show details** in the app to see the full log.
+---
 
-## Building from source (for developers)
+## 📦 What Ends Up in Your Study Folder
 
-You need Windows, Python 3.9 or newer, and [Inno Setup](https://jrsoftware.org/isinfo.php).
+Each lecture is automatically organized into a tidy, ready-to-study folder named after your course:
 
+```text
+CS301 - Algorithms - Lecture 05/
+  ├── 🎬 CS301 - Lecture 05.mp4             ← Full 1080p video with slide chapters
+  ├── 🎙️ CS301 - Lecture 05 (audio).m4a     ← Crisp AAC audio with course ID3 tags
+  ├── 📑 CS301 - Lecture 05 - Slides.pdf     ← Slide deck ready for iPad / tablet notes
+  ├── 🌐 CS301 - Lecture 05 - Slides_Viewer.html ← Offline interactive slide presentation
+  ├── 💬 CS301 - Lecture 05 - Chat.md        ← Formatted Markdown chat transcript
+  ├── 🔍 CS301 - Lecture 05 - Chat_Viewer.html ← Offline searchable interactive chat
+  ├── 🧠 CS301 - Lecture 05 - AI_Study_Companion.md ← Study guide & AI prompts
+  └── 📁 slides/                             ← Individual high-res slide assets
 ```
+
+---
+
+## 🚀 How to Run
+
+### 1. Desktop GUI (Recommended)
+```bash
+pip install --upgrade customtkinter
+python bbbStudentDownloader.py
+```
+
+### 2. Command Line Interface (CLI)
+```bash
+python bbbStudentDownloader.py --cli "https://bbb.example.edu/playback/presentation/2.3/..." --output ./Lectures
+```
+
+---
+
+## 💡 Key Features Walkthrough
+
+### 1. Clickable Video Chapters
+When you open the `.mp4` file in VLC, MPV, Windows Media Player, or QuickTime, each slide transition appears as a named chapter. Click any chapter to jump directly to that slide!
+
+### 2. Presentation Slide Deck & 1-Click PDF
+- `Slides_Viewer.html`: An offline, vector presentation viewer. Use arrow keys (`←` / `→`) or spacebar to flip slides.
+- Click the **"Print / Save as PDF"** button (or press `Ctrl+P`) to export an ultra-sharp vector PDF matching your slides.
+- If Pillow or FFmpeg is present, `Slides.pdf` is also built automatically on disk.
+
+### 3. Interactive Chat Viewer
+- `Chat_Viewer.html` works completely offline.
+- Features real-time search, filters by student or professor, question highlights (`?`), and a one-click copy button.
+- All links shared by classmates or the professor are organized into a quick-access panel.
+
+### 4. AI-Ready Study Companion
+`AI_Study_Companion.md` bundles the complete text extracted from every slide, the timeline of topics, and student Q&A. It comes with pre-written prompts for:
+- 🎓 **Anki Flashcards Generator**
+- 📝 **Practice Exam with Distractors**
+- ⚡ **5-Minute Cheat Sheet Summary**
+
+Simply copy-paste into **NotebookLM**, **ChatGPT**, or **Claude** to prepare for your exams!
+
+---
+
+## 🛠️ Building the Windows Installer (`.exe`)
+
+You need Windows, Python 3.9+, and [Inno Setup](https://jrsoftware.org/isinfo.php).
+
+```bash
 pip install --upgrade customtkinter pyinstaller
 python -m PyInstaller --clean --noconfirm --onefile --windowed --collect-all customtkinter --name bbbStudentDownloader bbbStudentDownloader.py
 ```
 
-Then build the installer:
+Then compile `setup.iss` in Inno Setup to generate `Output\bbbStudentDownloaderSetup.exe`.
 
-1. Create an `ffmpeg` folder in the project and copy `ffmpeg.exe` into it. Download ffmpeg from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (the "release essentials" build). Copy any license files into the same folder.
-2. Open `setup.iss` in Inno Setup and press **F9**.
-3. The installer is written to `Output\bbbStudentDownloaderSetup.exe`.
+---
 
-The `ffmpeg` folder, `dist`, and `build` are not stored in the repository. Upload the built installer to a GitHub Release.
+## 📜 License
 
-## Notes and responsible use
-
-- Only download recordings you're allowed to access. Check your institution's policy before sharing any recording.
-- ffmpeg is distributed under the GPL/LGPL licenses. The installer includes its license files.
-- The app is unsigned, so Windows SmartScreen will show a warning the first time.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.

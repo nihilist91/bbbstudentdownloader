@@ -1,487 +1,503 @@
 #!/usr/bin/env python3
 """
-bbbstudentDownloader - save BigBlueButton lecture recordings with a clean, modern window.
+bbbStudentDownloader / BBB StudyForge v2.0
+The complete BigBlueButton lecture archiver & AI study suite.
 
-Saves each lecture into a folder named after the course, keeps only the finished
-files, and removes the working pieces.
+Features:
+- Video (.mp4) with embedded slide chapters (screen share OR slide-sync video)
+- High-res Presentation Slide Deck (.pdf and offline HTML viewer)
+- Audio (.m4a) with ID3 course metadata tags
+- Interactive Chat Transcript (Markdown table & offline searchable HTML viewer)
+- AI Study Companion (.md) with ready-to-use prompts for NotebookLM, ChatGPT & Claude
+- Live Link Inspector (probes course name, duration, slides, and tracks in 1s)
+- Batch Downloader Queue (download multiple lectures in one click)
+- Built-in 1-Click FFMPEG auto-installer
+- Modern CustomTkinter Desktop GUI + CLI
 
-Setup:   pip install customtkinter
-Run:     python bbbStudentDownloader.py
-Build:   pyinstaller --onefile --windowed --collect-all customtkinter --name bbbStudentDownloader bbbStudentDownloader.py
+Usage:
+  python bbbStudentDownloader.py           # Launch Desktop GUI
+  python bbbStudentDownloader.py --cli <url> [--output <dir>]
 """
-import html
 import os
-import queue
-import re
-import shutil
-import subprocess
 import sys
+import argparse
+import queue
 import threading
-import tkinter as tk
-import urllib.error
-import urllib.request
-from tkinter import filedialog, messagebox
-from urllib.parse import urlparse
+from typing import Optional
 
-import customtkinter as ctk
-
-# ---------- look ----------
-BG = "#0B1020"
-CARD = "#141B2D"
-FIELD = "#1C2540"
-LINE = "#2A3658"
-ACCENT = "#7C5CFF"
-ACCENT_HOVER = "#9379FF"
-OK = "#34D399"
-WARN = "#FBBF24"
-BAD = "#F87171"
-TEXT = "#F1F5F9"
-MUTED = "#8A94A8"
-STAGES = ["Download", "Audio", "Video", "Tidy up"]
-
-# Files we try to fetch from the recording: (local name, path on the server)
-PARTS = [
-    ("metadata.xml", "metadata.xml"),
-    ("shapes.svg", "shapes.svg"),
-    ("slides_new.xml", "slides_new.xml"),
-    ("webcams.webm", "video/webcams.webm"),
-    ("deskshare.webm", "deskshare/deskshare.webm"),
-]
-WORKING_FILES = ["metadata.xml", "shapes.svg", "slides_new.xml"]
+from core.engine import inspect_recording, process_recording
+from core.ffmpeg_helper import find_ffmpeg, auto_download_ffmpeg
 
 
-# ---------- background work (no GUI calls here) ----------
-def fetch(url, dest, cookie, log, progress):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    if cookie:
-        headers["Cookie"] = cookie
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
-            total = int(r.headers.get("Content-Length") or 0)
-            done = 0
-            while True:
-                chunk = r.read(1 << 20)
-                if not chunk:
-                    break
-                f.write(chunk)
-                done += len(chunk)
-                if total:
-                    progress(done / total)
-        log(f"✔ {os.path.basename(dest)}")
-        return True
-    except urllib.error.HTTPError as e:
-        if os.path.exists(dest):
-            os.remove(dest)
-        log(f"· {os.path.basename(dest)} not on server (HTTP {e.code})")
-        return False
+def run_cli(args):
+    """Executes a command-line download."""
+    url = args.url
+    out_dir = args.output or os.path.join(os.path.expanduser("~"), "Downloads", "Lectures")
+    cookie = args.cookie or ""
 
-
-def find_ffmpeg():
-    """Use the ffmpeg.exe shipped next to the app; fall back to one installed on the system."""
-    folders = []
-    if getattr(sys, "frozen", False):
-        folders.append(os.path.dirname(sys.executable))   # next to the .exe (installed or portable folder)
-        if hasattr(sys, "_MEIPASS"):
-            folders.append(sys._MEIPASS)                  # inside a single-file .exe
-    else:
-        folders.append(os.path.dirname(os.path.abspath(__file__)))
-    for folder in folders:
-        candidate = os.path.join(folder, "ffmpeg.exe")
-        if os.path.isfile(candidate):
-            return candidate
-    return shutil.which("ffmpeg")
-
-
-def run_ffmpeg(args):
-    kwargs = {}
-    if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    res = subprocess.run([find_ffmpeg() or "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
-                         capture_output=True, text=True, **kwargs)
-    if res.returncode:
-        raise RuntimeError(res.stderr.strip()[-300:] or "ffmpeg failed")
-
-
-def read_text(path):
-    try:
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            return f.read()
-    except OSError:
-        return ""
-
-
-def course_name(meta_path):
-    """Find the course name stored in the recording's metadata (the 'context' field)."""
-    txt = read_text(meta_path)
-    fallback = ""
-    for tag, val in re.findall(r"<([\w.\-]*context[\w.\-]*)>(.*?)</\1>", txt, re.I | re.S):
-        val = html.unescape(val).strip()
-        if not val:
-            continue
-        if "name" in tag.lower():
-            return val
-        fallback = fallback or val
-    return fallback
-
-
-def recording_name(meta_path):
-    m = re.search(r"<name>(.*?)</name>", read_text(meta_path), re.S)
-    return html.unescape(m.group(1)).strip() if m else ""
-
-
-def safe_filename(name):
-    return re.sub(r'[\\/:*?"<>|\r\n]+', " ", name).strip()[:120] or "Lecture"
-
-
-def unique_folder(parent, name):
-    path = os.path.join(parent, name)
-    n = 2
-    while os.path.exists(path):
-        path = os.path.join(parent, f"{name} ({n})")
-        n += 1
-    return path
-
-
-def remove_quiet(path):
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-
-
-def job(url, outdir, cookie, q):
-    log = lambda m: q.put(("log", m))
-    prog = lambda p: q.put(("progress", p))
-    stage = lambda i: q.put(("stage", i))
-    status = lambda s: q.put(("status", s))
+    print(f"\n🚀 BBB StudyForge CLI v2.0")
+    print(f"Target URL: {url}")
+    print(f"Output Directory: {out_dir}\n")
 
     try:
-        m = re.search(r"/playback/presentation/[\d.]+/([^/?#]+)", url)
-        if not m:
-            raise ValueError("That link doesn't look right. It should contain /playback/presentation/")
-        meeting = m.group(1)
-        u = urlparse(url)
-        base = f"{u.scheme}://{u.netloc}/presentation/{meeting}"
+        print("🔍 Inspecting recording...")
+        info = inspect_recording(url, cookie=cookie)
+        print(f"   Course:    {info['course_name']}")
+        print(f"   Session:   {info['name']}")
+        print(f"   Presenter: {info['presenter']}")
+        print(f"   Duration:  {info['duration_formatted']} | Date: {info['date_str']}")
+        print(f"   Tracks:    Audio: {info['assets']['has_audio']} | Deskshare: {info['assets']['has_deskshare']} | Slides: {info['slide_count']} | Chat: {info['chat_count']}\n")
 
-        work = os.path.join(outdir, meeting)
-        os.makedirs(work, exist_ok=True)
-        p = lambda local: os.path.join(work, local)
+        def on_log(msg):
+            print(f"  • {msg}")
 
-        # Stage 0: download
-        stage(0)
-        status("Downloading the recording…")
-        for i, (local, remote) in enumerate(PARTS):
-            fetch(f"{base}/{remote}", p(local), cookie, log,
-                  lambda frac, i=i: prog((i + frac) / len(PARTS) * 0.6))
-            prog((i + 1) / len(PARTS) * 0.6)
+        def on_stage(num, desc):
+            print(f"\n[{num+1}/6] {desc}")
 
-        has_audio = os.path.exists(p("webcams.webm"))
-        has_screen = os.path.exists(p("deskshare.webm"))
-        if not has_audio and not has_screen:
-            raise RuntimeError("No audio or video was found. The link may need a login (turn on the login switch).")
+        def on_prog(p):
+            pct = int(p * 100)
+            sys.stdout.write(f"\r  Progress: [{pct:3d}%] {'#' * (pct // 4):25s}")
+            sys.stdout.flush()
 
-        have_ffmpeg = find_ffmpeg() is not None
-        if not have_ffmpeg:
-            log("ffmpeg wasn't found, so the original files will be kept as they are.")
-
-        # Stage 1: audio
-        stage(1)
-        status("Making the audio file…")
-        made_audio = have_ffmpeg and has_audio
-        if made_audio:
-            run_ffmpeg(["-i", p("webcams.webm"), "-vn", "-c:a", "aac", "-b:a", "128k", p("audio.m4a")])
-            log("audio ready")
-        prog(0.7)
-
-        # Stage 2: video
-        stage(2)
-        made_video = have_ffmpeg and has_audio and has_screen
-        if made_video:
-            status("Building the video…")
-            run_ffmpeg(["-i", p("deskshare.webm"), "-i", p("webcams.webm"),
-                        "-map", "0:v:0", "-map", "1:a:0",
-                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                        "-c:a", "aac", "-b:a", "128k", "-shortest", p("lecture.mp4")])
-            log("video ready")
-        else:
-            status("No screen share in this recording, skipping video…")
-        prog(0.85)
-
-        # Stage 3: tidy up and name everything after the course
-        stage(3)
-        status("Tidying up…")
-        name = safe_filename(course_name(p("metadata.xml"))
-                             or recording_name(p("metadata.xml")) or meeting)
-
-        for local in WORKING_FILES:
-            remove_quiet(p(local))
-        if made_audio:
-            os.replace(p("audio.m4a"), p(f"{name} (audio).m4a"))
-            remove_quiet(p("webcams.webm"))
-        elif has_audio:
-            os.replace(p("webcams.webm"), p(f"{name}.webm"))
-        if made_video:
-            os.replace(p("lecture.mp4"), p(f"{name}.mp4"))
-            remove_quiet(p("deskshare.webm"))
-        elif has_screen:
-            os.replace(p("deskshare.webm"), p(f"{name} (screen).webm"))
-
-        final = unique_folder(outdir, name)
-        os.replace(work, final)
-        prog(1.0)
-        q.put(("done", final))
+        res = process_recording(
+            url, out_dir, cookie=cookie,
+            log_callback=on_log,
+            progress_callback=on_prog,
+            stage_callback=on_stage
+        )
+        print(f"\n\n🎉 Done! All files saved to:\n   {res}\n")
     except Exception as e:
-        q.put(("error", str(e)))
+        print(f"\n❌ Error: {e}\n")
+        sys.exit(1)
 
 
-# ---------- the window ----------
-class App(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
-        self.title("bbbstudentDownloader")
-        self.geometry("640x780")
-        self.minsize(600, 740)
-        self.configure(fg_color=BG)
+def build_gui():
+    """Builds and launches the CustomTkinter Desktop application."""
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+    import customtkinter as ctk
 
-        self.f_title = ctk.CTkFont(family="Segoe UI", size=24, weight="bold")
-        self.f_big = ctk.CTkFont(family="Segoe UI", size=16, weight="bold")
-        self.f_body = ctk.CTkFont(family="Segoe UI", size=13)
-        self.f_small = ctk.CTkFont(family="Segoe UI", size=11)
-        self.f_label = ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
-        self.f_mono = ctk.CTkFont(family="Consolas", size=11)
+    # Color Palette - Glassmorphism Midnight Dark
+    BG = "#070B14"
+    CARD = "#0F172A"
+    FIELD = "#19243E"
+    LINE = "#24345A"
+    ACCENT = "#818CF8"
+    ACCENT_HOVER = "#6366F1"
+    OK = "#10B981"
+    WARN = "#F59E0B"
+    BAD = "#EF4444"
+    TEXT = "#F8FAFC"
+    MUTED = "#94A3B8"
 
-        self.q = queue.Queue()
-        self.busy = False
-        self.result_folder = None
-        self.details_on = False
-        self.url_var = tk.StringVar()
-        self.out_var = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Downloads", "Lectures"))
-        self.cookie_var = tk.StringVar()
-        self.cookie_on = tk.BooleanVar(value=False)
+    STAGES = ["Inspect", "Slides", "Download", "Audio", "Video", "Study Pack"]
 
-        self.build_footer()
-        self.build_header()
-        self.build_body()
-        self.check_ffmpeg()
-        self.after(100, self.poll)
+    class App(ctk.CTk):
+        def __init__(self):
+            super().__init__()
+            ctk.set_appearance_mode("dark")
+            ctk.set_default_color_theme("blue")
+            self.title("BBB StudyForge 2.0 - BigBlueButton Archiver & Study Suite")
+            self.geometry("720x860")
+            self.minsize(660, 800)
+            self.configure(fg_color=BG)
 
-    # ----- layout -----
-    def build_footer(self):
-        foot = ctk.CTkFrame(self, fg_color="transparent")
-        foot.pack(side="bottom", fill="x", padx=28, pady=18)
-        self.ff_pill = ctk.CTkLabel(foot, text="", corner_radius=10, height=28, font=self.f_small, padx=12)
-        self.ff_pill.pack(side="left")
-        self.open_btn = ctk.CTkButton(foot, text="Open folder", width=130, height=36, corner_radius=12,
-                                      fg_color=FIELD, hover_color=LINE, text_color=TEXT, font=self.f_body,
-                                      state="disabled", command=self.open_result)
-        self.open_btn.pack(side="right")
+            self.f_title = ctk.CTkFont(family="Segoe UI", size=22, weight="bold")
+            self.f_section = ctk.CTkFont(family="Segoe UI", size=14, weight="bold")
+            self.f_body = ctk.CTkFont(family="Segoe UI", size=13)
+            self.f_small = ctk.CTkFont(family="Segoe UI", size=11)
+            self.f_mono = ctk.CTkFont(family="Consolas", size=11)
 
-    def build_header(self):
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=28, pady=(26, 6))
-        ctk.CTkLabel(head, text="bbbstudentDownloader", font=self.f_title, text_color=TEXT).pack(anchor="w")
-        ctk.CTkLabel(head, text="Slides and sound from your recordings, saved neatly by course.",
-                     font=self.f_body, text_color=MUTED).pack(anchor="w", pady=(2, 0))
+            self.q = queue.Queue()
+            self.busy = False
+            self.result_folder = None
+            self.details_on = False
 
-        bar = ctk.CTkFrame(self, fg_color=CARD, corner_radius=14)
-        bar.pack(fill="x", padx=28, pady=(16, 6))
-        self.step_labels = []
-        for i, label in enumerate(STAGES):
-            lbl = ctk.CTkLabel(bar, text=f"{i + 1}  {label}", font=self.f_small, text_color=MUTED)
-            lbl.pack(side="left", expand=True, fill="x", pady=12)
-            self.step_labels.append(lbl)
+            # Variables
+            self.url_var = tk.StringVar()
+            self.out_var = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Downloads", "Lectures"))
+            self.cookie_var = tk.StringVar()
+            self.cookie_on = tk.BooleanVar(value=False)
 
-    def label(self, parent, text):
-        ctk.CTkLabel(parent, text=text, font=self.f_label, text_color=MUTED, anchor="w").pack(fill="x", pady=(8, 4))
+            # Export selection options
+            self.opt_video = tk.BooleanVar(value=True)
+            self.opt_audio = tk.BooleanVar(value=True)
+            self.opt_slides = tk.BooleanVar(value=True)
+            self.opt_chat = tk.BooleanVar(value=True)
+            self.opt_ai = tk.BooleanVar(value=True)
 
-    def build_body(self):
-        card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=18)
-        card.pack(fill="x", padx=28, pady=8)
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=22, pady=16)
+            self.build_ui()
+            self.check_ffmpeg()
+            self.after(100, self.poll)
 
-        self.label(inner, "RECORDING LINK")
-        row = ctk.CTkFrame(inner, fg_color="transparent")
-        row.pack(fill="x")
-        ctk.CTkEntry(row, textvariable=self.url_var, placeholder_text="Paste the playback link here",
-                     height=42, corner_radius=12, border_width=0, fg_color=FIELD,
-                     text_color=TEXT, font=self.f_body).pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(row, text="Paste", width=80, height=42, corner_radius=12, fg_color=FIELD,
-                      hover_color=LINE, text_color=TEXT, font=self.f_body, command=self.paste).pack(side="left")
+        def build_ui(self):
+            # Header
+            head = ctk.CTkFrame(self, fg_color="transparent")
+            head.pack(fill="x", padx=28, pady=(20, 8))
 
-        self.label(inner, "SAVE INTO")
-        row2 = ctk.CTkFrame(inner, fg_color="transparent")
-        row2.pack(fill="x")
-        ctk.CTkEntry(row2, textvariable=self.out_var, height=42, corner_radius=12, border_width=0,
-                     fg_color=FIELD, text_color=TEXT, font=self.f_body).pack(side="left", fill="x", expand=True,
-                                                                             padx=(0, 10))
-        ctk.CTkButton(row2, text="Browse", width=80, height=42, corner_radius=12, fg_color=FIELD,
-                      hover_color=LINE, text_color=TEXT, font=self.f_body, command=self.browse).pack(side="left")
+            top_row = ctk.CTkFrame(head, fg_color="transparent")
+            top_row.pack(fill="x")
+            ctk.CTkLabel(top_row, text="🚀 BBB StudyForge", font=self.f_title, text_color=TEXT).pack(side="left")
+            self.ff_pill = ctk.CTkLabel(top_row, text="", corner_radius=10, height=26, font=self.f_small, padx=10)
+            self.ff_pill.pack(side="right")
 
-        self.login_switch = ctk.CTkSwitch(inner, text="This link needs a login", variable=self.cookie_on,
-                                          command=self.toggle_cookie, font=self.f_body, text_color=TEXT,
-                                          progress_color=ACCENT)
-        self.login_switch.pack(anchor="w", pady=(14, 0))
-        self.cookie_entry = ctk.CTkEntry(inner, textvariable=self.cookie_var, show="•", height=38,
-                                         corner_radius=12, border_width=0, fg_color=FIELD, text_color=TEXT,
-                                         placeholder_text="Paste your browser cookie (stays on this PC)",
-                                         font=self.f_body)
+            ctk.CTkLabel(head, text="Save full lecture videos, slides deck (PDF), transcripts & AI study notes.",
+                         font=self.f_body, text_color=MUTED).pack(anchor="w", pady=(2, 0))
 
-        self.go_btn = ctk.CTkButton(self, text="Save lecture", height=56, corner_radius=16, font=self.f_big,
-                                    fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="white",
-                                    command=self.start)
-        self.go_btn.pack(fill="x", padx=28, pady=(16, 10))
+            # Tab View for Single vs Batch Downloader
+            self.tabview = ctk.CTkTabview(self, fg_color=CARD, corner_radius=16,
+                                          segmented_button_selected_color=ACCENT_HOVER,
+                                          segmented_button_unselected_color=FIELD)
+            self.tabview.pack(fill="both", expand=True, padx=28, pady=(10, 10))
 
-        self.bar = ctk.CTkProgressBar(self, height=10, corner_radius=6, fg_color=FIELD, progress_color=OK)
-        self.bar.set(0)
-        self.bar.pack(fill="x", padx=28)
+            self.tab_single = self.tabview.add("  Quick Save  ")
+            self.tab_batch = self.tabview.add("  Batch Queue  ")
+            self.tab_tools = self.tabview.add("  Settings & Tools  ")
 
-        self.status = ctk.CTkLabel(self, text="Ready when you are", font=self.f_body, text_color=TEXT, anchor="w")
-        self.status.pack(fill="x", padx=28, pady=(12, 4))
+            self.build_single_tab()
+            self.build_batch_tab()
+            self.build_tools_tab()
 
-        self.details_btn = ctk.CTkButton(self, text="Show details", width=110, height=26, corner_radius=8,
-                                         fg_color="transparent", hover_color=CARD, text_color=MUTED,
-                                         font=self.f_small, command=self.toggle_details)
-        self.details_btn.pack(anchor="w", padx=22)
+            # Global Footer
+            foot = ctk.CTkFrame(self, fg_color="transparent")
+            foot.pack(fill="x", padx=28, pady=(0, 16))
 
-        self.log_box = ctk.CTkTextbox(self, height=150, corner_radius=12, fg_color=FIELD, text_color=MUTED,
-                                      font=self.f_mono)
-        self.set_stage(-1)
+            self.bar = ctk.CTkProgressBar(foot, height=8, corner_radius=5, fg_color=FIELD, progress_color=OK)
+            self.bar.set(0)
+            self.bar.pack(fill="x", pady=(4, 8))
 
-    # ----- small UI helpers -----
-    def set_stage(self, i):
-        for j, lbl in enumerate(self.step_labels):
-            if i == 4 or j < i:
-                lbl.configure(text=f"✓  {STAGES[j]}", text_color=OK)
-            elif j == i:
-                lbl.configure(text=f"{j + 1}  {STAGES[j]}", text_color=TEXT)
+            status_row = ctk.CTkFrame(foot, fg_color="transparent")
+            status_row.pack(fill="x")
+            self.status_lbl = ctk.CTkLabel(status_row, text="Ready when you are", font=self.f_body, text_color=TEXT)
+            self.status_lbl.pack(side="left")
+
+            self.open_btn = ctk.CTkButton(status_row, text="📂 Open Folder", width=120, height=32, corner_radius=10,
+                                          fg_color=FIELD, hover_color=LINE, text_color=TEXT, font=self.f_small,
+                                          state="disabled", command=self.open_result)
+            self.open_btn.pack(side="right")
+
+        def build_single_tab(self):
+            t = self.tab_single
+
+            # URL input row
+            ctk.CTkLabel(t, text="RECORDING PLAYBACK LINK", font=self.f_small, text_color=MUTED).pack(anchor="w", pady=(6, 4))
+            row1 = ctk.CTkFrame(t, fg_color="transparent")
+            row1.pack(fill="x", pady=(0, 10))
+
+            self.url_entry = ctk.CTkEntry(row1, textvariable=self.url_var, placeholder_text="Paste BigBlueButton recording link here",
+                                          height=40, corner_radius=10, border_width=1, border_color=LINE, fg_color=FIELD,
+                                          text_color=TEXT, font=self.f_body)
+            self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+            ctk.CTkButton(row1, text="Paste", width=70, height=40, corner_radius=10, fg_color=FIELD,
+                          hover_color=LINE, font=self.f_body, command=self.paste).pack(side="left", padx=(0, 6))
+            ctk.CTkButton(row1, text="Inspect", width=80, height=40, corner_radius=10, fg_color=FIELD,
+                          hover_color=LINE, font=self.f_body, command=self.inspect_link).pack(side="left")
+
+            # Live Inspection Result Frame
+            self.inspect_frame = ctk.CTkFrame(t, fg_color=FIELD, corner_radius=12, border_width=1, border_color=LINE)
+            self.inspect_title = ctk.CTkLabel(self.inspect_frame, text="", font=self.f_section, text_color=ACCENT, anchor="w")
+            self.inspect_title.pack(fill="x", padx=14, pady=(10, 2))
+            self.inspect_details = ctk.CTkLabel(self.inspect_frame, text="", font=self.f_small, text_color=MUTED, anchor="w")
+            self.inspect_details.pack(fill="x", padx=14, pady=(0, 6))
+            self.inspect_chips = ctk.CTkLabel(self.inspect_frame, text="", font=self.f_small, text_color=OK, anchor="w")
+            self.inspect_chips.pack(fill="x", padx=14, pady=(0, 10))
+
+            # Save Into Directory
+            ctk.CTkLabel(t, text="SAVE DIRECTORY", font=self.f_small, text_color=MUTED).pack(anchor="w", pady=(8, 4))
+            row2 = ctk.CTkFrame(t, fg_color="transparent")
+            row2.pack(fill="x", pady=(0, 8))
+            ctk.CTkEntry(row2, textvariable=self.out_var, height=40, corner_radius=10, border_width=1,
+                         border_color=LINE, fg_color=FIELD, text_color=TEXT, font=self.f_body).pack(side="left", fill="x", expand=True, padx=(0, 8))
+            ctk.CTkButton(row2, text="Browse", width=80, height=40, corner_radius=10, fg_color=FIELD,
+                          hover_color=LINE, font=self.f_body, command=self.browse).pack(side="left")
+
+            # Cookie Switch
+            self.cookie_switch = ctk.CTkSwitch(t, text="This recording needs a login (cookies)", variable=self.cookie_on,
+                                               command=self.toggle_cookie, font=self.f_small, progress_color=ACCENT_HOVER)
+            self.cookie_switch.pack(anchor="w", pady=(6, 4))
+            self.cookie_entry = ctk.CTkEntry(t, textvariable=self.cookie_var, show="•", height=36, corner_radius=10,
+                                             border_width=1, border_color=LINE, fg_color=FIELD, text_color=TEXT,
+                                             placeholder_text="Paste your session cookie (name=value; ...)", font=self.f_body)
+
+            # Checkbox options
+            ctk.CTkLabel(t, text="EXPORT MODULES", font=self.f_small, text_color=MUTED).pack(anchor="w", pady=(8, 4))
+            opts_frame = ctk.CTkFrame(t, fg_color="transparent")
+            opts_frame.pack(fill="x", pady=(0, 10))
+            ctk.CTkCheckBox(opts_frame, text="Video (.mp4 + Chapters)", variable=self.opt_video, font=self.f_small).pack(side="left", padx=(0, 10))
+            ctk.CTkCheckBox(opts_frame, text="Audio (.m4a)", variable=self.opt_audio, font=self.f_small).pack(side="left", padx=(0, 10))
+            ctk.CTkCheckBox(opts_frame, text="Slides (PDF)", variable=self.opt_slides, font=self.f_small).pack(side="left", padx=(0, 10))
+            ctk.CTkCheckBox(opts_frame, text="Chat (.md/.html)", variable=self.opt_chat, font=self.f_small).pack(side="left", padx=(0, 10))
+            ctk.CTkCheckBox(opts_frame, text="AI Study Pack", variable=self.opt_ai, font=self.f_small).pack(side="left")
+
+            # Main Action Button
+            self.go_btn = ctk.CTkButton(t, text="⚡ Download Complete Study Suite", height=50, corner_radius=14,
+                                        font=self.f_section, fg_color=ACCENT_HOVER, hover_color=ACCENT, text_color="#fff",
+                                        command=self.start_single)
+            self.go_btn.pack(fill="x", pady=(12, 10))
+
+            # Toggle Log Details Button & Textbox
+            log_head = ctk.CTkFrame(t, fg_color="transparent")
+            log_head.pack(fill="x", pady=(4, 2))
+            self.details_btn = ctk.CTkButton(log_head, text="Show Log Details ▼", width=120, height=24,
+                                             corner_radius=6, fg_color="transparent", hover_color=FIELD,
+                                             text_color=MUTED, font=self.f_small, command=self.toggle_details)
+            self.details_btn.pack(side="left")
+
+            self.log_box = ctk.CTkTextbox(t, height=120, corner_radius=10, fg_color=FIELD, text_color=MUTED, font=self.f_mono)
+
+        def build_batch_tab(self):
+            t = self.tab_batch
+            ctk.CTkLabel(t, text="BATCH LECTURE QUEUE", font=self.f_section, text_color=TEXT).pack(anchor="w", pady=(10, 4))
+            ctk.CTkLabel(t, text="Paste multiple BigBlueButton recording links (one per line) to download all of them overnight.",
+                         font=self.f_small, text_color=MUTED).pack(anchor="w", pady=(0, 8))
+
+            self.batch_text = ctk.CTkTextbox(t, height=220, corner_radius=12, fg_color=FIELD, text_color=TEXT, font=self.f_mono)
+            self.batch_text.pack(fill="both", expand=True, pady=(0, 12))
+
+            self.batch_btn = ctk.CTkButton(t, text="🚀 Start Batch Download", height=46, corner_radius=12,
+                                           font=self.f_section, fg_color=ACCENT_HOVER, hover_color=ACCENT,
+                                           command=self.start_batch)
+            self.batch_btn.pack(fill="x")
+
+        def build_tools_tab(self):
+            t = self.tab_tools
+            ctk.CTkLabel(t, text="SYSTEM TOOLS & CONVERTER", font=self.f_section, text_color=TEXT).pack(anchor="w", pady=(12, 6))
+
+            # FFmpeg Card
+            card1 = ctk.CTkFrame(t, fg_color=FIELD, corner_radius=14, border_width=1, border_color=LINE)
+            card1.pack(fill="x", pady=(0, 14), padx=4)
+            ctk.CTkLabel(card1, text="FFmpeg Media Converter", font=self.f_section, text_color=TEXT).pack(anchor="w", padx=16, pady=(12, 4))
+            ctk.CTkLabel(card1, text="Required for encoding MP4 video with slide chapters and M4A audio.\nIf missing or uninstalled, click below to set it up in one click.",
+                         font=self.f_small, text_color=MUTED, justify="left").pack(anchor="w", padx=16, pady=(0, 10))
+
+            btn_row = ctk.CTkFrame(card1, fg_color="transparent")
+            btn_row.pack(fill="x", padx=16, pady=(0, 14))
+            self.ff_auto_btn = ctk.CTkButton(btn_row, text="📥 1-Click Auto Install FFmpeg", height=36, corner_radius=10,
+                                             fg_color=OK, text_color="#000", font=self.f_small, command=self.auto_install_ff)
+            self.ff_auto_btn.pack(side="left")
+
+        def check_ffmpeg(self):
+            if find_ffmpeg():
+                self.ff_pill.configure(text="✔ Converter Ready", text_color="#06281C", fg_color=OK)
+                self.ff_auto_btn.configure(text="✔ FFmpeg is Installed", state="disabled", fg_color=FIELD, text_color=MUTED)
             else:
-                lbl.configure(text=f"{j + 1}  {STAGES[j]}", text_color=MUTED)
+                self.ff_pill.configure(text="⚠ Converter Missing", text_color="#3A2A00", fg_color=WARN)
 
-    def toggle_cookie(self):
-        if self.cookie_on.get():
-            self.cookie_entry.pack(fill="x", pady=(8, 0))
-        else:
-            self.cookie_entry.pack_forget()
+        def auto_install_ff(self):
+            self.ff_auto_btn.configure(text="Downloading FFmpeg...", state="disabled")
+            self.log("Starting automatic FFmpeg setup...")
+            def worker():
+                try:
+                    res = auto_download_ffmpeg(progress_callback=lambda f, msg: self.q.put(("status", msg)))
+                    self.q.put(("log", f"FFmpeg installed at: {res}"))
+                    self.q.put(("check_ff", None))
+                except Exception as ex:
+                    self.q.put(("error", f"FFmpeg install failed: {ex}"))
+            threading.Thread(target=worker, daemon=True).start()
 
-    def toggle_details(self):
-        self.details_on = not self.details_on
-        if self.details_on:
-            self.log_box.pack(fill="both", expand=True, padx=28, pady=(6, 8))
-            self.details_btn.configure(text="Hide details")
-        else:
-            self.log_box.pack_forget()
-            self.details_btn.configure(text="Show details")
-
-    def check_ffmpeg(self):
-        if find_ffmpeg():
-            self.ff_pill.configure(text="Converter ready", text_color="#06281C", fg_color=OK)
-        else:
-            self.ff_pill.configure(text="Converter missing: reinstall bbbstudentDownloader", text_color="#3A2A00",
-                                   fg_color=WARN)
-
-    def log(self, msg):
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", msg + "\n")
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
-
-    def log_clear(self):
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.configure(state="disabled")
-
-    # ----- actions -----
-    def paste(self):
-        try:
-            self.url_var.set(self.clipboard_get().strip())
-            self.status.configure(text="Link pasted")
-        except tk.TclError:
-            messagebox.showinfo("Nothing to paste", "Copy the link first, then click Paste.")
-
-    def browse(self):
-        folder = filedialog.askdirectory(initialdir=self.out_var.get() or os.path.expanduser("~"))
-        if folder:
-            self.out_var.set(folder)
-
-    def start(self):
-        if self.busy:
-            return
-        url = self.url_var.get().strip()
-        outdir = self.out_var.get().strip()
-        if not url:
-            messagebox.showwarning("Missing link", "Paste the recording link first.")
-            return
-        if not outdir:
-            messagebox.showwarning("Missing folder", "Choose where to save first.")
-            return
-        try:
-            os.makedirs(outdir, exist_ok=True)
-        except OSError as e:
-            messagebox.showerror("Folder problem", f"I couldn't use that folder:\n{e}")
-            return
-
-        cookie = self.cookie_var.get().strip() if self.cookie_on.get() else ""
-        self.busy = True
-        self.result_folder = None
-        self.open_btn.configure(state="disabled")
-        self.go_btn.configure(text="Working…", state="disabled", fg_color=LINE)
-        self.bar.set(0)
-        self.set_stage(-1)
-        self.log_clear()
-        self.log("Starting")
-        threading.Thread(target=job, args=(url, outdir, cookie, self.q), daemon=True).start()
-
-    def open_result(self):
-        if self.result_folder and os.path.exists(self.result_folder):
-            if hasattr(os, "startfile"):
-                os.startfile(self.result_folder)
+        def toggle_cookie(self):
+            if self.cookie_on.get():
+                self.cookie_entry.pack(fill="x", pady=(0, 8))
             else:
-                subprocess.Popen(["xdg-open", self.result_folder])
+                self.cookie_entry.pack_forget()
 
-    # ----- messages from the worker -----
-    def poll(self):
+        def toggle_details(self):
+            self.details_on = not self.details_on
+            if self.details_on:
+                self.log_box.pack(fill="both", expand=True, pady=(6, 8))
+                self.details_btn.configure(text="Hide Log Details ▲")
+            else:
+                self.log_box.pack_forget()
+                self.details_btn.configure(text="Show Log Details ▼")
+
+        def log(self, msg):
+            self.log_box.configure(state="normal")
+            self.log_box.insert("end", f"• {msg}\n")
+            self.log_box.see("end")
+            self.log_box.configure(state="disabled")
+
+        def paste(self):
+            try:
+                txt = self.clipboard_get().strip()
+                self.url_var.set(txt)
+                self.inspect_link()
+            except Exception:
+                pass
+
+        def browse(self):
+            f = filedialog.askdirectory(initialdir=self.out_var.get() or os.path.expanduser("~"))
+            if f:
+                self.out_var.set(f)
+
+        def inspect_link(self):
+            url = self.url_var.get().strip()
+            if not url:
+                return
+            cookie = self.cookie_var.get().strip() if self.cookie_on.get() else ""
+            self.inspect_frame.pack(fill="x", pady=(0, 10))
+            self.inspect_title.configure(text="Inspecting recording...")
+            self.inspect_details.configure(text="Connecting to BigBlueButton server...")
+            self.inspect_chips.configure(text="")
+
+            def worker():
+                try:
+                    data = inspect_recording(url, cookie=cookie)
+                    self.q.put(("inspect_ok", data))
+                except Exception as ex:
+                    self.q.put(("inspect_err", str(ex)))
+            threading.Thread(target=worker, daemon=True).start()
+
+        def start_single(self):
+            if self.busy:
+                return
+            url = self.url_var.get().strip()
+            out_dir = self.out_var.get().strip()
+            if not url:
+                messagebox.showwarning("Missing Link", "Paste the BigBlueButton recording link first.")
+                return
+
+            cookie = self.cookie_var.get().strip() if self.cookie_on.get() else ""
+            options = {
+                "save_video": self.opt_video.get(),
+                "save_audio": self.opt_audio.get(),
+                "save_slides": self.opt_slides.get(),
+                "save_chat": self.opt_chat.get(),
+                "save_study_pack": self.opt_ai.get(),
+            }
+
+            self.busy = True
+            self.result_folder = None
+            self.open_btn.configure(state="disabled")
+            self.go_btn.configure(text="Working on lecture...", state="disabled", fg_color=LINE)
+            self.bar.set(0)
+
+            def worker():
+                try:
+                    res = process_recording(
+                        url, out_dir, options=options, cookie=cookie,
+                        log_callback=lambda m: self.q.put(("log", m)),
+                        progress_callback=lambda p: self.q.put(("progress", p)),
+                        stage_callback=lambda num, desc: self.q.put(("stage", (num, desc)))
+                    )
+                    self.q.put(("done", res))
+                except Exception as ex:
+                    self.q.put(("error", str(ex)))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def start_batch(self):
+            lines = [l.strip() for l in self.batch_text.get("1.0", "end").splitlines() if l.strip()]
+            if not lines:
+                messagebox.showinfo("Empty Queue", "Paste one or more recording links into the box.")
+                return
+
+            out_dir = self.out_var.get().strip()
+            cookie = self.cookie_var.get().strip() if self.cookie_on.get() else ""
+            self.batch_btn.configure(text="Processing Queue...", state="disabled")
+
+            def batch_worker():
+                total = len(lines)
+                for idx, url in enumerate(lines, start=1):
+                    self.q.put(("status", f"Batch item [{idx}/{total}]..."))
+                    try:
+                        res = process_recording(url, out_dir, cookie=cookie,
+                                                log_callback=lambda m: self.q.put(("log", m)),
+                                                progress_callback=lambda p: self.q.put(("progress", (idx - 1 + p) / total)))
+                        self.q.put(("log", f"Finished batch item {idx}: {res}"))
+                    except Exception as e:
+                        self.q.put(("log", f"Failed batch item {idx}: {e}"))
+                self.q.put(("batch_done", total))
+
+            threading.Thread(target=batch_worker, daemon=True).start()
+
+        def open_result(self):
+            if self.result_folder and os.path.exists(self.result_folder):
+                if hasattr(os, "startfile"):
+                    os.startfile(self.result_folder)
+                else:
+                    import subprocess
+                    subprocess.Popen(["xdg-open", self.result_folder])
+
+        def poll(self):
+            try:
+                while True:
+                    kind, val = self.q.get_nowait()
+                    if kind == "log":
+                        self.log(val)
+                    elif kind == "progress":
+                        self.bar.set(val)
+                    elif kind == "status":
+                        self.status_lbl.configure(text=val)
+                    elif kind == "stage":
+                        num, desc = val
+                        self.status_lbl.configure(text=f"Step {num+1}/6: {desc}")
+                    elif kind == "inspect_ok":
+                        self.inspect_title.configure(text=f"{val['course_name']} - {val['name']}")
+                        self.inspect_details.configure(
+                            text=f"Duration: {val['duration_formatted']} | Date: {val['date_str']} | Presenter: {val['presenter']}"
+                        )
+                        chips_str = f"Tracks: Audio: {'✔' if val['assets']['has_audio'] else '✖'} | Screen: {'✔' if val['assets']['has_deskshare'] else '✖'} | Slides: {val['slide_count']} | Chat: {val['chat_count']}"
+                        self.inspect_chips.configure(text=chips_str)
+                    elif kind == "inspect_err":
+                        self.inspect_title.configure(text="Inspection failed")
+                        self.inspect_details.configure(text=val)
+                    elif kind == "check_ff":
+                        self.check_ffmpeg()
+                    elif kind == "done":
+                        self.finish(val)
+                    elif kind == "batch_done":
+                        self.batch_btn.configure(text="🚀 Start Batch Download", state="normal")
+                        messagebox.showinfo("Batch Finished", f"Successfully processed {val} lectures.")
+                    elif kind == "error":
+                        self.fail(val)
+            except queue.Empty:
+                pass
+            self.after(100, self.poll)
+
+        def finish(self, folder):
+            self.busy = False
+            self.result_folder = folder
+            self.bar.set(1.0)
+            self.status_lbl.configure(text=f"Saved: {os.path.basename(folder)}", text_color=OK)
+            self.go_btn.configure(text="⚡ Save Another Lecture", state="normal", fg_color=ACCENT_HOVER)
+            self.open_btn.configure(state="normal", fg_color=OK, text_color="#000")
+
+        def fail(self, msg):
+            self.busy = False
+            self.bar.set(0)
+            self.status_lbl.configure(text="Something went wrong", text_color=BAD)
+            self.go_btn.configure(text="Try Again", state="normal", fg_color=ACCENT_HOVER)
+            messagebox.showerror("Download Error", msg)
+
+    App().mainloop()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="BBB StudyForge 2.0 - BigBlueButton Archiver & AI Study Suite")
+    parser.add_argument("--cli", dest="url", help="Download recording via command-line (pass playback URL)")
+    parser.add_argument("--output", "-o", help="Target output folder")
+    parser.add_argument("--cookie", "-c", help="Session cookie string for authenticated recordings")
+
+    args = parser.parse_args()
+
+    if args.url:
+        run_cli(args)
+    else:
+        # Launch Desktop GUI
         try:
-            while True:
-                kind, val = self.q.get_nowait()
-                if kind == "log":
-                    self.log(val)
-                elif kind == "progress":
-                    self.bar.set(val)
-                elif kind == "status":
-                    self.status.configure(text=val, text_color=TEXT)
-                elif kind == "stage":
-                    self.set_stage(val)
-                elif kind == "done":
-                    self.finish(val)
-                elif kind == "error":
-                    self.fail(val)
-        except queue.Empty:
-            pass
-        self.after(100, self.poll)
-
-    def finish(self, folder):
-        self.busy = False
-        self.result_folder = folder
-        self.set_stage(4)
-        self.bar.set(1)
-        self.status.configure(text=f"Saved: {os.path.basename(folder)}", text_color=OK)
-        self.log(f"Saved to: {folder}")
-        self.go_btn.configure(text="Save another lecture", state="normal", fg_color=ACCENT)
-        self.open_btn.configure(state="normal", fg_color=OK, text_color="#06281C")
-
-    def fail(self, msg):
-        self.busy = False
-        self.bar.set(0)
-        self.set_stage(-1)
-        self.status.configure(text="Something went wrong", text_color=BAD)
-        self.log(f"Error: {msg}")
-        self.go_btn.configure(text="Try again", state="normal", fg_color=ACCENT)
-        messagebox.showerror("Couldn't save the lecture", msg)
+            import tkinter
+            import customtkinter
+            build_gui()
+        except (ImportError, ModuleNotFoundError) as e:
+            print(f"\n❌ Error launching GUI: {e}")
+            print("To run the desktop GUI, please install customtkinter:\n    pip install customtkinter")
+            print("Or use the CLI mode:\n    python bbbStudentDownloader.py --cli <URL> [--output <DIR>]\n")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\n❌ Error: {e}\n")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    main()
