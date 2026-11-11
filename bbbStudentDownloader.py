@@ -28,7 +28,7 @@ from typing import Optional
 from core.engine import inspect_recording, process_recording
 from core.ffmpeg_helper import find_ffmpeg, auto_download_ffmpeg
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 
 def run_cli(args):
@@ -111,7 +111,7 @@ def build_gui():
             ctk.set_default_color_theme("blue")
             self.title(f"BBB StudyForge {__version__} - BigBlueButton Archiver & Study Suite")
             self.geometry("720x860")
-            self.minsize(660, 800)
+            self.resizable(False, False)
             self.configure(fg_color=BG)
 
             self.f_title = ctk.CTkFont(family="Segoe UI", size=22, weight="bold")
