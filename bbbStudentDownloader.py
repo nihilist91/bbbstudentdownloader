@@ -569,6 +569,52 @@ def build_gui():
     App().mainloop()
 
 
+_single_instance_handle = None
+
+
+def acquire_single_instance_lock() -> bool:
+    """
+    Prevents multiple concurrent instances of the GUI from running simultaneously.
+    Uses a named Win32 Mutex on Windows, and an exclusive file lock on Unix/Linux.
+    Returns True if this is the only running instance, False if already running.
+    """
+    global _single_instance_handle
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            mutex_name = "Global\\bbbStudentDownloader_SingleInstance_Mutex"
+            ERROR_ALREADY_EXISTS = 183
+            handle = kernel32.CreateMutexW(None, False, mutex_name)
+            last_err = kernel32.GetLastError()
+            if last_err == ERROR_ALREADY_EXISTS:
+                # Another instance is already running; bring it to foreground
+                try:
+                    user32 = ctypes.windll.user32
+                    hwnd = user32.FindWindowW(None, "BBB StudyForge 2.0 - BigBlueButton Archiver & Study Suite")
+                    if hwnd:
+                        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                        user32.SetForegroundWindow(hwnd)
+                except Exception:
+                    pass
+                return False
+            _single_instance_handle = handle
+            return True
+        except Exception:
+            return True
+    else:
+        import tempfile
+        import fcntl
+        lock_path = os.path.join(tempfile.gettempdir(), "bbb_student_downloader.lock")
+        try:
+            f = open(lock_path, "w")
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _single_instance_handle = f
+            return True
+        except (IOError, BlockingIOError):
+            return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="BBB StudyForge 2.0 - BigBlueButton Archiver & AI Study Suite")
     parser.add_argument("--cli", dest="url", help="Download recording via command-line (pass playback URL)")
@@ -580,6 +626,22 @@ def main():
     if args.url:
         run_cli(args)
     else:
+        # Prevent running duplicate instances simultaneously
+        if not acquire_single_instance_lock():
+            try:
+                import tkinter
+                from tkinter import messagebox
+                root = tkinter.Tk()
+                root.withdraw()
+                messagebox.showinfo(
+                    "Already Running",
+                    "BBB StudyForge is already open and running.\nSwitched to your active window."
+                )
+                root.destroy()
+            except Exception:
+                pass
+            sys.exit(0)
+
         # Launch Desktop GUI
         try:
             import tkinter
