@@ -28,7 +28,7 @@ from typing import Optional
 from core.engine import inspect_recording, process_recording
 from core.ffmpeg_helper import find_ffmpeg, auto_download_ffmpeg
 
-__version__ = "2.1.5"
+__version__ = "2.1.6"
 
 
 def run_cli(args):
@@ -599,7 +599,7 @@ def build_gui():
                         self.finish(val)
                     elif kind == "batch_done":
                         self.batch_btn.configure(text="🚀 Start Batch Download", state="normal")
-                        self.notify_finish("Batch Complete", f"Successfully processed {val} lectures.")
+                        self.notify_finish("Batch Complete", f"Successfully processed {val} lectures.", folder_path=self.out_var.get())
                         if self.batch_shutdown.get():
                             self.trigger_overnight_shutdown()
                         else:
@@ -626,8 +626,8 @@ def build_gui():
                     except Exception:
                         pass
 
-        def notify_finish(self, title: str, message: str):
-            """Plays a completion chime/sound and displays a notification."""
+        def notify_finish(self, title: str, message: str, folder_path: str = ""):
+            """Plays a completion chime and surfaces a native desktop toast with Open Folder action."""
             def _play():
                 played = False
                 if sys.platform.startswith("win"):
@@ -645,6 +645,49 @@ def build_gui():
 
             threading.Thread(target=_play, daemon=True).start()
 
+            # Surface Windows 10/11 Interactive Toast Notification
+            if sys.platform.startswith("win"):
+                def _toast():
+                    try:
+                        import subprocess
+                        target_dir = folder_path or self.result_folder or self.out_var.get() or ""
+                        safe_title = title.replace('"', '`"')
+                        safe_msg = message.replace('"', '`"')
+                        target_url = target_dir.replace("\\", "/")
+                        action_xml = f'<action content="📂 Open Folder" activationType="protocol" arguments="file:///{target_url}"/>' if target_dir else ""
+                        
+                        ps_script = f"""
+$ErrorActionPreference = 'SilentlyContinue'
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$template = @"
+<toast activationType="protocol" launch="file:///{target_url}">
+    <visual>
+        <binding template="ToastGeneric">
+            <text>{safe_title}</text>
+            <text>{safe_msg}</text>
+        </binding>
+    </visual>
+    <actions>
+        {action_xml}
+    </actions>
+</toast>
+"@
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+$appId = "nihilist.bbbstudentdownloader.studyforge.2.0"
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+"""
+                        subprocess.Popen(
+                            ["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                        )
+                    except Exception:
+                        pass
+
+                threading.Thread(target=_toast, daemon=True).start()
+
         def finish(self, folder):
             self.busy = False
             self.result_folder = folder
@@ -653,7 +696,7 @@ def build_gui():
             self.status_lbl.configure(text=f"Saved: {lecture_name}", text_color=OK)
             self.go_btn.configure(text="⚡ Save Another Lecture", state="normal", fg_color=ACCENT_HOVER)
             self.open_btn.configure(state="normal", fg_color=OK, text_color="#000")
-            self.notify_finish("Download Complete", f"Saved: {lecture_name}")
+            self.notify_finish("Download Complete", f"Saved: {lecture_name}", folder_path=folder)
 
         def fail(self, msg):
             self.busy = False
