@@ -141,6 +141,9 @@ def build_gui():
             self.auto_trim = tk.BooleanVar(value=True)
             self.cut_time_var = tk.StringVar()
 
+            # Batch overnight options
+            self.batch_shutdown = tk.BooleanVar(value=False)
+
             # Set window & taskbar icon
             try:
                 base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -318,8 +321,17 @@ def build_gui():
             ctk.CTkLabel(t, text="Paste multiple BigBlueButton recording links (one per line) to download all of them overnight.",
                          font=self.f_small, text_color=MUTED).pack(anchor="w", pady=(0, 8))
 
-            self.batch_text = ctk.CTkTextbox(t, height=220, corner_radius=12, fg_color=FIELD, text_color=TEXT, font=self.f_mono)
-            self.batch_text.pack(fill="both", expand=True, pady=(0, 12))
+            self.batch_text = ctk.CTkTextbox(t, height=200, corner_radius=12, fg_color=FIELD, text_color=TEXT, font=self.f_mono)
+            self.batch_text.pack(fill="both", expand=True, pady=(0, 10))
+
+            # Overnight mode option
+            overnight_row = ctk.CTkFrame(t, fg_color="transparent")
+            overnight_row.pack(fill="x", pady=(0, 10))
+            self.shutdown_check = ctk.CTkCheckBox(
+                overnight_row, text="🌙 Overnight Mode: Shutdown / Sleep PC when all downloads finish",
+                variable=self.batch_shutdown, font=self.f_small, progress_color=ACCENT_HOVER
+            )
+            self.shutdown_check.pack(side="left")
 
             self.batch_btn = ctk.CTkButton(t, text="🚀 Start Batch Download", height=46, corner_radius=12,
                                            font=self.f_section, fg_color=ACCENT_HOVER, hover_color=ACCENT,
@@ -577,12 +589,31 @@ def build_gui():
                     elif kind == "batch_done":
                         self.batch_btn.configure(text="🚀 Start Batch Download", state="normal")
                         self.notify_finish("Batch Complete", f"Successfully processed {val} lectures.")
-                        messagebox.showinfo("Batch Finished", f"Successfully processed {val} lectures.")
+                        if self.batch_shutdown.get():
+                            self.trigger_overnight_shutdown()
+                        else:
+                            messagebox.showinfo("Batch Finished", f"Successfully processed {val} lectures.")
                     elif kind == "error":
                         self.fail(val)
             except queue.Empty:
                 pass
             self.after(100, self.poll)
+
+        def trigger_overnight_shutdown(self):
+            """Overnight batch completion: alerts user and initiates PC shutdown/sleep."""
+            import subprocess
+            answer = messagebox.askyesno(
+                "Overnight Batch Complete",
+                "All batch downloads have finished!\n\nYour PC will shut down in 30 seconds as requested.\nDo you want to proceed?"
+            )
+            if answer:
+                if sys.platform.startswith("win"):
+                    subprocess.Popen(["shutdown", "/s", "/t", "30"])
+                else:
+                    try:
+                        subprocess.Popen(["systemctl", "poweroff"])
+                    except Exception:
+                        pass
 
         def notify_finish(self, title: str, message: str):
             """Plays a completion chime/sound and displays a notification."""

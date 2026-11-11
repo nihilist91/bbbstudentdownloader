@@ -204,6 +204,10 @@ def process_recording(url: str, output_parent_dir: str,
             log(f"Downloading {len(slides)} slide assets...")
             slide_objects = download_all_slides(base_url, slides, work_dir, cookie=cookie,
                                                 progress_callback=lambda f, msg: prog(0.63 + f * 0.10))
+            # Attach slide texts for search & study pack
+            for s in slide_objects:
+                s_idx = str(s.get("index", ""))
+                s["text"] = slide_texts.get(s_idx, "")
         prog(0.73)
 
         # Stage 3: Audio synthesis

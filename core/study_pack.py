@@ -3,6 +3,7 @@ core/study_pack.py - Generates rich Markdown transcripts, interactive offline HT
 interactive slide deck viewer, and AI study companion packages.
 """
 import html
+import json
 import re
 from typing import List, Dict, Any
 
@@ -257,7 +258,11 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
     slide_divs = []
     thumb_divs = []
 
+    slide_texts_map = {}
     for s in slide_files:
+        idx = s.get("index", 1)
+        txt = s.get("text") or ""
+        slide_texts_map[idx] = txt
         idx = s.get("index", 1)
         rel_path = html.escape(s.get("local_filename") or s.get("href") or "")
         time_in = s.get("in", 0.0)
@@ -308,6 +313,11 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
   }}
   .top-title {{ font-size: 15px; font-weight: 700; color: var(--text); }}
   .top-actions {{ display: flex; gap: 10px; align-items: center; }}
+  .search-input {{
+    background: #1C2540; border: 1px solid var(--line); color: var(--text);
+    padding: 7px 12px; border-radius: 8px; font-size: 13px; outline: none; width: 220px;
+  }}
+  .search-input:focus {{ border-color: var(--accent); }}
   button {{
     background: #1C2540; border: 1px solid var(--line); color: var(--text);
     padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
@@ -348,6 +358,7 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
 <div class="top-bar">
   <div class="top-title">{course} - {title}</div>
   <div class="top-actions">
+    <input type="text" id="slideSearchInput" class="search-input" placeholder="🔍 Search slide text..." autocomplete="off">
     <button onclick="window.print()" class="btn-accent">🖨️ Print / Save as PDF</button>
   </div>
 </div>
@@ -365,6 +376,7 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
 <script>
   let current = 1;
   const total = {total_slides};
+  const slideTexts = {json.dumps(slide_texts_map)};
 
   function update() {{
     document.querySelectorAll(".slide-item").forEach(el => {{
@@ -382,6 +394,21 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
   function goToSlide(n) {{
     current = Math.max(1, Math.min(total, n));
     update();
+  }}
+
+  const searchInput = document.getElementById("slideSearchInput");
+  if (searchInput) {{
+    searchInput.addEventListener("input", e => {{
+      const q = e.target.value.trim().toLowerCase();
+      if (!q) return;
+      for (let i = 1; i <= total; i++) {{
+        const txt = (slideTexts[i] || "").toLowerCase();
+        if (txt.includes(q)) {{
+          goToSlide(i);
+          break;
+        }}
+      }}
+    }});
   }}
 
   document.addEventListener("keydown", e => {{
