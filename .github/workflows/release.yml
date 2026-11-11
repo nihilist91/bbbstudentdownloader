@@ -46,17 +46,49 @@ jobs:
           Remove-Item -Recurse -Force "ffmpeg_temp", "ffmpeg.zip"
           Write-Host "FFmpeg successfully staged in ./ffmpeg"
 
+      - name: Verify source code before build
+        shell: powershell
+        run: |
+          Write-Host "=== Verifying source files ==="
+          Write-Host "Main script first 5 lines:"
+          Get-Content bbbStudentDownloader.py -Head 5
+          Write-Host ""
+          Write-Host "Checking for v2.1 in main script:"
+          Select-String -Path bbbStudentDownloader.py -Pattern "v2.1" | ForEach-Object { $_.Line.Trim() }
+          Write-Host ""
+          Write-Host "Core modules:"
+          Get-ChildItem core\*.py | ForEach-Object { Write-Host "  $($_.Name) - $($_.Length) bytes" }
+          Write-Host ""
+          Write-Host "Checking crash log handler:"
+          Select-String -Path bbbStudentDownloader.py -Pattern "bbb_crash" | ForEach-Object { $_.Line.Trim() }
+
       - name: Build Portable Executable (PyInstaller)
         shell: powershell
         run: |
           Write-Host "Building standalone executable..."
           python -m PyInstaller --clean --noconfirm --onefile --windowed `
             --collect-all customtkinter `
+            --hidden-import core `
+            --hidden-import core.engine `
+            --hidden-import core.parser `
+            --hidden-import core.converter `
+            --hidden-import core.downloader `
+            --hidden-import core.study_pack `
+            --hidden-import core.ffmpeg_helper `
             --add-data "assets/app_icon.ico;assets" `
+            --add-data "core;core" `
             --icon "assets\app_icon.ico" `
             --name bbbStudentDownloader bbbStudentDownloader.py
           Copy-Item "dist\bbbStudentDownloader.exe" "dist\bbbStudentDownloader-Portable.exe"
           Write-Host "Portable build complete: dist\bbbStudentDownloader-Portable.exe"
+          Write-Host ""
+          Write-Host "=== Verifying built exe contains new code ==="
+          $bytes = [System.IO.File]::ReadAllBytes("dist\bbbStudentDownloader.exe")
+          $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+          $checks = @("v2.1", "bbb_crash", "poll_clipboard", "check_updates_background")
+          foreach ($check in $checks) {
+            if ($text.Contains($check)) { Write-Host "  FOUND: $check" } else { Write-Host "  MISSING: $check" }
+          }
 
       - name: Compile Inno Setup Installer
         shell: powershell
