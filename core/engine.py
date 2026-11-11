@@ -1,6 +1,6 @@
 """
 core/engine.py - The central coordinator that downloads, processes, and packages
-BigBlueButton recordings into complete study suites.
+BigBlueButton recordings into complete study suites, featuring smart lecture end-trimming.
 """
 import os
 import shutil
@@ -9,7 +9,8 @@ from typing import Dict, Any, Callable, Optional, List
 
 from core.parser import (
     parse_bbb_url, parse_metadata, parse_shapes_svg,
-    parse_chat_xml, parse_presentation_text, safe_filename
+    parse_chat_xml, parse_presentation_text, safe_filename,
+    detect_lecture_end_time, format_duration
 )
 from core.downloader import (
     fetch_text, fetch_file, probe_recording_assets,
@@ -28,8 +29,8 @@ from core.ffmpeg_helper import find_ffmpeg
 
 def inspect_recording(url: str, cookie: Optional[str] = None) -> Dict[str, Any]:
     """
-    Rapidly probes a BigBlueButton recording to extract metadata and detect all available tracks.
-    Returns inspection summary dict.
+    Rapidly probes a BigBlueButton recording to extract metadata and detect all available tracks,
+    including smart detection of active class duration vs trailing dead time.
     """
     meeting_id, base_url, _ = parse_bbb_url(url)
     meta_xml = fetch_text(f"{base_url}/metadata.xml", cookie=cookie, timeout=10)
@@ -37,17 +38,21 @@ def inspect_recording(url: str, cookie: Optional[str] = None) -> Dict[str, Any]:
 
     assets = probe_recording_assets(base_url, cookie=cookie)
 
+    slides = []
     slide_count = 0
     if assets["shapes_svg"]:
         svg_text = fetch_text(f"{base_url}/shapes.svg", cookie=cookie, timeout=10)
         slides = parse_shapes_svg(svg_text)
         slide_count = len(slides)
 
+    msgs = []
     chat_count = 0
     if assets["chat_xml"]:
         chat_xml = fetch_text(f"{base_url}/chat.xml", cookie=cookie, timeout=8)
         msgs, _, _ = parse_chat_xml(chat_xml)
         chat_count = len(msgs)
+
+    cut_sec, has_dead, dead_sec = detect_lecture_end_time(metadata["duration_seconds"], slides, msgs)
 
     return {
         "meeting_id": meeting_id,
@@ -62,17 +67,22 @@ def inspect_recording(url: str, cookie: Optional[str] = None) -> Dict[str, Any]:
         "assets": assets,
         "slide_count": slide_count,
         "chat_count": chat_count,
+        "detected_cut_seconds": cut_sec,
+        "detected_cut_formatted": format_duration(cut_sec),
+        "has_dead_time": has_dead,
+        "dead_time_seconds": dead_sec,
+        "dead_time_formatted": format_duration(dead_sec),
     }
 
 
 def process_recording(url: str, output_parent_dir: str,
-                      options: Optional[Dict[str, bool]] = None,
+                      options: Optional[Dict[str, Any]] = None,
                       cookie: Optional[str] = None,
                       log_callback: Optional[Callable[[str], None]] = None,
                       progress_callback: Optional[Callable[[float], None]] = None,
                       stage_callback: Optional[Callable[[int, str], None]] = None) -> str:
     """
-    Main job that executes the end-to-end download and synthesis workflow.
+    Main job that executes the end-to-end download, smart trimming, and synthesis workflow.
     """
     def log(m):
         if log_callback:
@@ -92,6 +102,8 @@ def process_recording(url: str, output_parent_dir: str,
         "save_slides": True,
         "save_chat": True,
         "save_study_pack": True,
+        "auto_trim": True,
+        "custom_cut_seconds": None,
     }
     if options:
         opts.update(options)
@@ -144,6 +156,18 @@ def process_recording(url: str, output_parent_dir: str,
         pres_text_json = fetch_text(f"{base_url}/presentation_text.json", cookie=cookie)
         slide_texts = parse_presentation_text(pres_text_json)
 
+        # Smart Lecture End Trimming Calculation
+        active_cut = None
+        custom_cut = opts.get("custom_cut_seconds")
+        if custom_cut is not None and float(custom_cut) > 0:
+            active_cut = float(custom_cut)
+            log(f"✂️ Trimming lecture at user-specified cut point: {format_duration(active_cut)}")
+        elif opts.get("auto_trim", True):
+            cut_sec, has_dead, dead_sec = detect_lecture_end_time(metadata["duration_seconds"], slides, chat_messages)
+            if has_dead:
+                active_cut = cut_sec
+                log(f"✂️ Detected {format_duration(dead_sec)} of inactive dead time after class ended. Auto-trimming to {format_duration(active_cut)}.")
+
         prog(0.28)
 
         # Stage 2: Download Media
@@ -154,7 +178,6 @@ def process_recording(url: str, output_parent_dir: str,
         has_webcams = fetch_file(f"{base_url}/video/webcams.webm", webcams_path, cookie=cookie,
                                  progress_callback=lambda f, d, t: prog(0.28 + f * 0.20))
         if not has_webcams:
-            # Try mp4 fallback
             webcams_mp4 = os.path.join(work_dir, "webcams.mp4")
             if fetch_file(f"{base_url}/video/webcams.mp4", webcams_mp4, cookie=cookie):
                 webcams_path = webcams_mp4
@@ -191,14 +214,14 @@ def process_recording(url: str, output_parent_dir: str,
         if opts["save_audio"] and has_webcams:
             if have_ffmpeg:
                 log("Encoding high-quality AAC audio with metadata...")
-                build_audio(webcams_path, audio_dest, metadata)
+                build_audio(webcams_path, audio_dest, metadata, cut_duration=active_cut)
                 log("Audio ready.")
             else:
                 log("FFmpeg missing; preserving raw audio stream.")
                 shutil.copyfile(webcams_path, os.path.join(work_dir, f"{folder_base_name}.webm"))
         prog(0.80)
 
-        # Stage 4: Video synthesis (with Chapter injection!)
+        # Stage 4: Video synthesis (with Chapter injection and smart trimming!)
         stage(4, "Synthesizing lecture video & chapters...")
         video_dest = os.path.join(work_dir, f"{folder_base_name}.mp4")
 
@@ -206,16 +229,18 @@ def process_recording(url: str, output_parent_dir: str,
         chapters_file = None
         if slides:
             chapters_file = os.path.join(work_dir, "chapters.txt")
-            generate_ffmetadata_file(metadata, slides, chapters_file)
+            generate_ffmetadata_file(metadata, slides, chapters_file, cut_duration=active_cut)
 
         if opts["save_video"] and have_ffmpeg:
             if has_deskshare:
                 log("Building screen-share video with synchronized chapters...")
-                build_deskshare_video(deskshare_path, webcams_path, video_dest, metadata_file=chapters_file)
+                build_deskshare_video(deskshare_path, webcams_path, video_dest,
+                                      metadata_file=chapters_file, cut_duration=active_cut)
                 log("Deskshare video created.")
             elif slide_objects:
                 log("No deskshare stream found. Synthesizing video from presentation slides...")
-                ok_slide_vid = build_slide_sync_video(slide_objects, webcams_path, video_dest, metadata_file=chapters_file)
+                ok_slide_vid = build_slide_sync_video(slide_objects, webcams_path, video_dest,
+                                                      metadata_file=chapters_file, cut_duration=active_cut)
                 if ok_slide_vid:
                     log("Slide-synchronized video created successfully!")
                 else:
@@ -259,7 +284,6 @@ def process_recording(url: str, output_parent_dir: str,
 
         # Stage 6: Finalize & organize folder
         stage(6, "Tidying up...")
-        # Remove intermediate working files
         for temp_file in ["webcams.webm", "webcams.mp4", "deskshare.webm", "deskshare.mp4", "chapters.txt", "slides_concat.txt"]:
             tp = os.path.join(work_dir, temp_file)
             if os.path.isfile(tp):

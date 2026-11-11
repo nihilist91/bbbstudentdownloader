@@ -5,6 +5,7 @@ import re
 import html
 import json
 import datetime
+from typing import Optional, List, Dict, Tuple, Any
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
@@ -75,6 +76,79 @@ def format_timestamp(seconds: float) -> str:
     if hrs > 0:
         return f"{hrs:02d}:{mins:02d}:{s:02d}"
     return f"{mins:02d}:{s:02d}"
+
+
+def parse_time_string(time_str: str) -> Optional[float]:
+    """
+    Parses a user-supplied time string (e.g. '01:45:00', '1h 30m', '90m', '5400')
+    into seconds as a float. Returns None if invalid or blank.
+    """
+    if not time_str or not str(time_str).strip():
+        return None
+    s = str(time_str).strip().lower()
+
+    # HH:MM:SS or MM:SS
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            if len(parts) == 3:
+                return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+            elif len(parts) == 2:
+                return float(parts[0]) * 60 + float(parts[1])
+        except ValueError:
+            pass
+
+    # e.g. "1h 45m" or "2h" or "90m"
+    m_h = re.search(r'(\d+(?:\.\d+)?)\s*h', s)
+    m_m = re.search(r'(\d+(?:\.\d+)?)\s*m', s)
+    m_s = re.search(r'(\d+(?:\.\d+)?)\s*s', s)
+    if m_h or m_m or m_s:
+        hrs = float(m_h.group(1)) if m_h else 0.0
+        mins = float(m_m.group(1)) if m_m else 0.0
+        secs = float(m_s.group(1)) if m_s else 0.0
+        return hrs * 3600 + mins * 60 + secs
+
+    # Pure number (seconds)
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def detect_lecture_end_time(total_duration: float, slides: list, chat_messages: list,
+                            buffer_seconds: float = 600.0) -> tuple:
+    """
+    Detects if a lecture has excessive trailing dead time (e.g. professor forgot to
+    stop recording and left an empty room for hours after class finished).
+
+    Returns:
+      (cut_seconds: float, has_dead_time: bool, dead_time_seconds: float)
+    """
+    if total_duration <= 0:
+        return total_duration, False, 0.0
+
+    last_slide_flip = 0.0
+    if slides:
+        last_slide_flip = max(s.get("in", 0.0) for s in slides)
+
+    last_chat_time = 0.0
+    if chat_messages:
+        last_chat_time = max(m.get("time_sec", 0.0) for m in chat_messages)
+
+    last_activity = max(last_slide_flip, last_chat_time)
+    if last_activity <= 0:
+        return total_duration, False, 0.0
+
+    recommended_cut = last_activity + buffer_seconds
+
+    if recommended_cut >= total_duration:
+        return total_duration, False, 0.0
+
+    dead_time = total_duration - recommended_cut
+    if dead_time >= 900.0:  # > 15 minutes of dead air
+        return round(recommended_cut, 2), True, round(dead_time, 2)
+
+    return total_duration, False, 0.0
 
 
 def parse_metadata(xml_text: str, meeting_id_fallback: str = "") -> dict:

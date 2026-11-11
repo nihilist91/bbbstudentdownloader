@@ -1,6 +1,6 @@
 """
 core/converter.py - Audio/Video encoding, chapter injection, slide-sync video synthesis,
-and PDF compilation for BigBlueButton recordings.
+smart lecture trimming, and PDF compilation for BigBlueButton recordings.
 """
 import os
 import re
@@ -9,10 +9,11 @@ from typing import List, Dict, Optional
 from core.ffmpeg_helper import run_ffmpeg, find_ffmpeg
 
 
-def generate_ffmetadata_file(metadata: dict, slides: List[dict], output_path: str) -> str:
+def generate_ffmetadata_file(metadata: dict, slides: List[dict], output_path: str,
+                             cut_duration: Optional[float] = None) -> str:
     """
     Generates an FFMETADATA1 file containing global lecture metadata and
-    chapter markers for each slide transition.
+    chapter markers for each slide transition, capped at cut_duration if trimmed.
     """
     lines = [
         ";FFMETADATA1",
@@ -24,9 +25,17 @@ def generate_ffmetadata_file(metadata: dict, slides: List[dict], output_path: st
     ]
 
     for i, s in enumerate(slides):
+        start_t = float(s.get("in", 0.0))
+        if cut_duration and start_t >= cut_duration:
+            break
+
         idx = s.get("index", i + 1)
-        start_ms = int(s.get("in", 0.0) * 1000)
-        end_ms = int(s.get("out", 0.0) * 1000)
+        start_ms = int(start_t * 1000)
+        raw_end_t = float(s.get("out", 0.0))
+        if cut_duration:
+            raw_end_t = min(raw_end_t, cut_duration)
+
+        end_ms = int(raw_end_t * 1000)
         if end_ms <= start_ms:
             end_ms = start_ms + 5000
 
@@ -45,9 +54,11 @@ def generate_ffmetadata_file(metadata: dict, slides: List[dict], output_path: st
     return output_path
 
 
-def build_audio(webcams_path: str, output_path: str, metadata: dict) -> bool:
+def build_audio(webcams_path: str, output_path: str, metadata: dict,
+                cut_duration: Optional[float] = None) -> bool:
     """
-    Extracts audio from webcams.webm, encodes to crisp AAC M4A, and writes ID3 metadata.
+    Extracts audio from webcams.webm, encodes to crisp AAC M4A, writes ID3 metadata,
+    and trims trailing dead time if cut_duration is specified.
     """
     if not os.path.isfile(webcams_path):
         return False
@@ -69,15 +80,20 @@ def build_audio(webcams_path: str, output_path: str, metadata: dict) -> bool:
     if year.isdigit():
         args.extend(["-metadata", f"date={year}"])
 
+    if cut_duration and cut_duration > 0:
+        args.extend(["-t", str(cut_duration)])
+
     args.append(output_path)
     run_ffmpeg(args)
     return os.path.isfile(output_path)
 
 
 def build_deskshare_video(deskshare_path: str, webcams_path: str, output_path: str,
-                          metadata_file: Optional[str] = None) -> bool:
+                          metadata_file: Optional[str] = None,
+                          cut_duration: Optional[float] = None) -> bool:
     """
-    Combines deskshare video and webcams audio into a synchronized, chapter-indexed MP4 file.
+    Combines deskshare video and webcams audio into a synchronized, chapter-indexed MP4 file,
+    optionally trimmed to cut_duration.
     """
     if not os.path.isfile(deskshare_path) or not os.path.isfile(webcams_path):
         return False
@@ -101,28 +117,36 @@ def build_deskshare_video(deskshare_path: str, webcams_path: str, output_path: s
         "-b:a", "128k",
         "-shortest",
         "-movflags", "+faststart",
-        output_path
     ])
+
+    if cut_duration and cut_duration > 0:
+        args.extend(["-t", str(cut_duration)])
+
+    args.append(output_path)
 
     run_ffmpeg(args)
     return os.path.isfile(output_path)
 
 
 def build_slide_sync_video(slides: List[dict], webcams_path: str, output_path: str,
-                           metadata_file: Optional[str] = None) -> bool:
+                           metadata_file: Optional[str] = None,
+                           cut_duration: Optional[float] = None) -> bool:
     """
     Synthesizes a synchronized 1080p MP4 presentation video directly from slide images
-    and audio when no deskshare is present!
+    and audio when no deskshare is present! Capped at cut_duration if specified.
     """
     valid_slides = [s for s in slides if s.get("local_path") and os.path.isfile(s["local_path"])]
     if not valid_slides or not os.path.isfile(webcams_path):
         return False
 
-    # Check if slides are PNG/JPEG images suitable for ffmpeg concat
     img_slides = [s for s in valid_slides if s["local_path"].lower().endswith(('.png', '.jpg', '.jpeg'))]
     if not img_slides:
-        # Slides might be SVG; ffmpeg concat needs raster images
         return False
+
+    if cut_duration and cut_duration > 0:
+        img_slides = [s for s in img_slides if s.get("in", 0.0) < cut_duration]
+        if not img_slides:
+            img_slides = [valid_slides[0]]
 
     # Generate ffconcat file
     concat_path = os.path.join(os.path.dirname(output_path), "slides_concat.txt")
@@ -130,9 +154,10 @@ def build_slide_sync_video(slides: List[dict], webcams_path: str, output_path: s
         f.write("ffconcat version 1.0\n")
         for i, s in enumerate(img_slides):
             duration = s.get("duration", 5.0)
+            if cut_duration and (s.get("in", 0.0) + duration > cut_duration):
+                duration = max(1.0, cut_duration - s.get("in", 0.0))
             f.write(f"file '{s['local_path']}'\n")
             f.write(f"duration {duration}\n")
-        # Concat demuxer requirement: repeat last image
         f.write(f"file '{img_slides[-1]['local_path']}'\n")
 
     args = [
@@ -156,8 +181,12 @@ def build_slide_sync_video(slides: List[dict], webcams_path: str, output_path: s
         "-b:a", "128k",
         "-shortest",
         "-movflags", "+faststart",
-        output_path
     ])
+
+    if cut_duration and cut_duration > 0:
+        args.extend(["-t", str(cut_duration)])
+
+    args.append(output_path)
 
     try:
         run_ffmpeg(args)
@@ -174,10 +203,6 @@ def build_slide_sync_video(slides: List[dict], webcams_path: str, output_path: s
 def compile_slides_to_pdf(slides: List[dict], output_pdf_path: str) -> bool:
     """
     Compiles slide images into a multi-page PDF presentation.
-    Tries multiple methods in order:
-    1. Pillow (PIL) if installed
-    2. ffmpeg image-to-pdf if supported
-    3. Pure Python JPEG/PNG packer
     """
     valid_paths = [s["local_path"] for s in slides if s.get("local_path") and os.path.isfile(s["local_path"])]
     if not valid_paths:
@@ -205,7 +230,6 @@ def compile_slides_to_pdf(slides: List[dict], output_pdf_path: str) -> bool:
     try:
         img_paths = [p for p in valid_paths if p.lower().endswith(('.png', '.jpg', '.jpeg'))]
         if img_paths and find_ffmpeg():
-            # Concat demuxer with 1 frame per slide
             concat_path = os.path.join(os.path.dirname(output_pdf_path), "pdf_concat.txt")
             with open(concat_path, "w", encoding="utf-8") as f:
                 f.write("ffconcat version 1.0\n")

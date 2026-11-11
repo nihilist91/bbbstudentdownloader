@@ -7,7 +7,8 @@ import os
 import unittest
 from core.parser import (
     parse_bbb_url, parse_metadata, parse_shapes_svg,
-    parse_chat_xml, parse_presentation_text, format_duration, format_timestamp
+    parse_chat_xml, parse_presentation_text, format_duration, format_timestamp,
+    parse_time_string, detect_lecture_end_time
 )
 from core.study_pack import (
     generate_chat_markdown, generate_interactive_chat_html,
@@ -84,6 +85,32 @@ class TestBBBParser(unittest.TestCase):
         self.assertIn("https://cs.edu/hw2", links)
         self.assertEqual(len(questions), 1)
         self.assertEqual(questions[0]["sender"], "Alice")
+
+    def test_parse_time_string(self):
+        self.assertAlmostEqual(parse_time_string("01:30:00"), 5400.0, places=1)
+        self.assertAlmostEqual(parse_time_string("1h 30m"), 5400.0, places=1)
+        self.assertAlmostEqual(parse_time_string("90m"), 5400.0, places=1)
+        self.assertAlmostEqual(parse_time_string("5400"), 5400.0, places=1)
+        self.assertAlmostEqual(parse_time_string("45:00"), 2700.0, places=1)
+        self.assertIsNone(parse_time_string(""))
+        self.assertIsNone(parse_time_string(None))
+
+    def test_detect_lecture_end_time(self):
+        slides = [{"in": 0.0}, {"in": 1800.0}, {"in": 6300.0}]
+        chat = [{"time_sec": 6500.0}]
+        total = 18000.0  # 5 hours total
+        cut, has_dead, dead = detect_lecture_end_time(total, slides, chat)
+        self.assertTrue(has_dead)
+        self.assertAlmostEqual(cut, 7100.0, delta=1.0)
+        self.assertAlmostEqual(dead, total - cut, delta=1.0)
+        self.assertGreater(dead, 900)
+
+    def test_detect_lecture_end_no_dead_time(self):
+        slides = [{"in": 0.0}, {"in": 1800.0}, {"in": 7000.0}]
+        chat = [{"time_sec": 7100.0}]
+        total = 7800.0
+        cut, has_dead, dead = detect_lecture_end_time(total, slides, chat)
+        self.assertFalse(has_dead)
 
 
 class TestStudyPackGenerators(unittest.TestCase):

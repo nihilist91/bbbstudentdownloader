@@ -18,6 +18,8 @@
 | **AI Study Companion** | ❌ None | **Extracts slide text, Q&A, and pre-crafts prompts for NotebookLM/ChatGPT** |
 | **Link Inspector** | ❌ None | **Instantly probes title, date, duration, and tracks before downloading** |
 | **Batch Queue** | ❌ 1 link at a time | **Paste 10+ links at once to download entire semester overnight** |
+| **Smart Dead-Time Trimmer** | ❌ None (records 5h if prof forgets to stop) | **Auto-detects lecture end time from slide/chat timeline & cuts dead silence** |
+| **Custom App Icon & Setup** | ❌ Default generic icon | **Custom multi-res branding, modern 64-bit Inno Setup installer & portable build** |
 | **FFmpeg Setup** | ❌ Manual reinstall if missing | **1-Click Auto-Installer built directly into the app** |
 | **Interfaces** | Desktop GUI only | **CustomTkinter Desktop GUI + Full CLI support** |
 

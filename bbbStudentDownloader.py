@@ -126,6 +126,18 @@ def build_gui():
             self.opt_chat = tk.BooleanVar(value=True)
             self.opt_ai = tk.BooleanVar(value=True)
 
+            # Trim / lecture end detection options
+            self.auto_trim = tk.BooleanVar(value=True)
+            self.cut_time_var = tk.StringVar()
+
+            # Set window icon
+            try:
+                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app_icon.ico")
+                if os.path.isfile(icon_path):
+                    self.iconbitmap(icon_path)
+            except Exception:
+                pass
+
             self.build_ui()
             self.check_ffmpeg()
             self.after(100, self.poll)
@@ -219,6 +231,33 @@ def build_gui():
             self.cookie_entry = ctk.CTkEntry(t, textvariable=self.cookie_var, show="•", height=36, corner_radius=10,
                                              border_width=1, border_color=LINE, fg_color=FIELD, text_color=TEXT,
                                              placeholder_text="Paste your session cookie (name=value; ...)", font=self.f_body)
+
+            # ── SMART TRIM — Remove Dead Time After Class ──────────────────────
+            trim_frame = ctk.CTkFrame(t, fg_color=FIELD, corner_radius=12, border_width=1, border_color=LINE)
+            trim_frame.pack(fill="x", pady=(10, 4))
+            trim_inner = ctk.CTkFrame(trim_frame, fg_color="transparent")
+            trim_inner.pack(fill="x", padx=14, pady=10)
+
+            ctk.CTkLabel(trim_inner, text="✂️  SMART TRIM — Remove Dead Time After Class",
+                         font=self.f_small, text_color=MUTED, anchor="w").pack(fill="x", pady=(0, 6))
+            trim_row = ctk.CTkFrame(trim_inner, fg_color="transparent")
+            trim_row.pack(fill="x")
+            self.auto_trim_switch = ctk.CTkSwitch(trim_row, text="Auto-detect and cut silent recording tail",
+                                                   variable=self.auto_trim, font=self.f_small,
+                                                   progress_color=ACCENT_HOVER)
+            self.auto_trim_switch.pack(side="left")
+
+            ctk.CTkLabel(trim_inner, text="Or set a manual cut point (overrides auto):",
+                         font=self.f_small, text_color=MUTED, anchor="w").pack(fill="x", pady=(8, 2))
+            self.cut_entry = ctk.CTkEntry(trim_inner, textvariable=self.cut_time_var, height=34, corner_radius=10,
+                                          border_width=1, border_color=LINE, fg_color=CARD, text_color=TEXT,
+                                          placeholder_text="e.g.  1h 45m   or   01:45:00   (blank = none)",
+                                          font=self.f_body)
+            self.cut_entry.pack(fill="x")
+
+            self.trim_warn_lbl = ctk.CTkLabel(trim_inner, text="", font=self.f_small, text_color=WARN, anchor="w")
+            self.trim_warn_lbl.pack(fill="x", pady=(4, 0))
+            # ──────────────────────────────────────────────────────────────────
 
             # Checkbox options
             ctk.CTkLabel(t, text="EXPORT MODULES", font=self.f_small, text_color=MUTED).pack(anchor="w", pady=(8, 4))
@@ -358,12 +397,17 @@ def build_gui():
                 return
 
             cookie = self.cookie_var.get().strip() if self.cookie_on.get() else ""
+            from core.parser import parse_time_string
+            cut_raw = self.cut_time_var.get().strip()
+            custom_cut = parse_time_string(cut_raw) if cut_raw else None
             options = {
                 "save_video": self.opt_video.get(),
                 "save_audio": self.opt_audio.get(),
                 "save_slides": self.opt_slides.get(),
                 "save_chat": self.opt_chat.get(),
                 "save_study_pack": self.opt_ai.get(),
+                "auto_trim": self.auto_trim.get(),
+                "custom_cut_seconds": custom_cut,
             }
 
             self.busy = True
@@ -439,6 +483,17 @@ def build_gui():
                         )
                         chips_str = f"Tracks: Audio: {'✔' if val['assets']['has_audio'] else '✖'} | Screen: {'✔' if val['assets']['has_deskshare'] else '✖'} | Slides: {val['slide_count']} | Chat: {val['chat_count']}"
                         self.inspect_chips.configure(text=chips_str)
+                        # Update smart trim warning
+                        if val.get("has_dead_time"):
+                            dead = val.get("dead_time_formatted", "")
+                            cut = val.get("detected_cut_formatted", "")
+                            self.trim_warn_lbl.configure(
+                                text=f"⚠  {dead} of dead time detected after class ended. Auto-trim to {cut}."
+                            )
+                            if not self.cut_time_var.get().strip():
+                                self.cut_time_var.set(cut)
+                        else:
+                            self.trim_warn_lbl.configure(text="")
                     elif kind == "inspect_err":
                         self.inspect_title.configure(text="Inspection failed")
                         self.inspect_details.configure(text=val)

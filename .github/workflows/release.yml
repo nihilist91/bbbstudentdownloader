@@ -50,7 +50,11 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Building standalone executable..."
-          python -m PyInstaller --clean --noconfirm --onefile --windowed --collect-all customtkinter --name bbbStudentDownloader bbbStudentDownloader.py
+          python -m PyInstaller --clean --noconfirm --onefile --windowed `
+            --collect-all customtkinter `
+            --add-data "assets/app_icon.ico;assets" `
+            --icon "assets\app_icon.ico" `
+            --name bbbStudentDownloader bbbStudentDownloader.py
           Copy-Item "dist\bbbStudentDownloader.exe" "dist\bbbStudentDownloader-Portable.exe"
           Write-Host "Portable build complete: dist\bbbStudentDownloader-Portable.exe"
 
