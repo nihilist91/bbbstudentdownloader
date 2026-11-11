@@ -28,7 +28,7 @@ from typing import Optional
 from core.engine import inspect_recording, process_recording
 from core.ffmpeg_helper import find_ffmpeg, auto_download_ffmpeg
 
-__version__ = "2.1.6"
+__version__ = "2.2.0"
 
 
 def run_cli(args):

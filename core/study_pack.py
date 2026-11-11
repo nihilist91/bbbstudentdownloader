@@ -345,13 +345,61 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
   }}
   .nav-info {{ font-size: 14px; font-weight: 600; color: var(--text); min-width: 120px; text-align: center; }}
 
-  /* Print Stylesheet for 1-Click PDF Export */
+  /* Print Stylesheet for 1-Click PDF Export & Cheat Sheet Modes */
   @media print {{
     .top-bar, .nav-bar {{ display: none !important; }}
-    .stage {{ margin: 0; padding: 0; display: block; min-height: auto; }}
-    .slide-item {{ display: block !important; page-break-after: always; break-after: page; width: 100vw; height: 100vh; display: flex !important; flex-direction: column; justify-content: center; align-items: center; }}
-    .slide-media img {{ max-height: 90vh; max-width: 95vw; box-shadow: none; border: none; }}
+    
+    /* Standard 1-slide-per-page print */
+    body:not(.print-cheatsheet) .stage {{ margin: 0; padding: 0; display: block; min-height: auto; }}
+    body:not(.print-cheatsheet) .slide-item {{ display: block !important; page-break-after: always; break-after: page; width: 100vw; height: 100vh; display: flex !important; flex-direction: column; justify-content: center; align-items: center; }}
+    body:not(.print-cheatsheet) .slide-media img {{ max-height: 90vh; max-width: 95vw; box-shadow: none; border: none; }}
+
+    /* Compact 4-in-1 / 6-in-1 Cheat Sheet Print Grid */
+    body.print-cheatsheet {{ background: #fff !important; color: #000 !important; }}
+    body.print-cheatsheet .stage {{
+      margin: 0 !important; padding: 10mm !important; display: grid !important;
+      grid-template-columns: repeat(2, 1fr) !important;
+      gap: 12mm 10mm !important; min-height: auto !important;
+    }}
+    body.print-cheatsheet .slide-item {{
+      display: flex !important; flex-direction: column !important;
+      break-inside: avoid !important; page-break-inside: avoid !important;
+      border: 1px solid #ccc !important; border-radius: 8px !important;
+      padding: 6px !important; background: #fafafa !important; text-align: left !important;
+    }}
+    body.print-cheatsheet .slide-header {{
+      color: #222 !important; font-size: 11px !important; font-weight: bold !important;
+      margin-bottom: 4px !important; display: flex !important; justify-content: space-between !important;
+    }}
+    body.print-cheatsheet .slide-media img {{
+      width: 100% !important; height: auto !important; max-height: 38mm !important;
+      object-fit: contain !important; border: 1px solid #ddd !important;
+      border-radius: 4px !important; box-shadow: none !important;
+    }}
+    /* Ink-Saver Mode: Invert dark slides to clean white */
+    body.print-cheatsheet.ink-saver .slide-media img {{
+      filter: invert(1) hue-rotate(180deg) contrast(1.15) !important;
+    }}
   }}
+
+  /* Screen preview styling when Cheat-Sheet mode is toggled on */
+  body.cheatsheet-preview {{ background: #0E1426 !important; }}
+  body.cheatsheet-preview .stage {{
+    display: grid !important; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) !important;
+    gap: 20px !important; margin-top: 70px !important; margin-bottom: 30px !important; padding: 24px !important;
+  }}
+  body.cheatsheet-preview .slide-item {{
+    display: flex !important; flex-direction: column !important;
+    background: var(--card) !important; border: 1px solid var(--line) !important;
+    border-radius: 12px !important; padding: 12px !important;
+  }}
+  body.cheatsheet-preview .slide-media img {{
+    max-height: 220px !important; width: 100% !important; object-fit: contain !important;
+  }}
+  body.cheatsheet-preview.ink-saver .slide-media img {{
+    filter: invert(1) hue-rotate(180deg) contrast(1.15);
+  }}
+  body.cheatsheet-preview .nav-bar {{ display: none !important; }}
 </style>
 </head>
 <body>
@@ -359,7 +407,9 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
   <div class="top-title">{course} - {title}</div>
   <div class="top-actions">
     <input type="text" id="slideSearchInput" class="search-input" placeholder="🔍 Search slide text..." autocomplete="off">
-    <button onclick="window.print()" class="btn-accent">🖨️ Print / Save as PDF</button>
+    <button id="cheatSheetToggle" onclick="toggleCheatSheet()" title="Toggle compact 4-in-1 cheat-sheet layout">📑 4-in-1 Cheat-Sheet</button>
+    <button id="inkSaverToggle" onclick="toggleInkSaver()" title="Invert dark backgrounds to save printer ink">💧 Ink-Saver: OFF</button>
+    <button onclick="triggerPrint()" class="btn-accent">🖨️ Print / Save PDF</button>
   </div>
 </div>
 
@@ -377,8 +427,34 @@ def generate_slide_deck_html(metadata: dict, slide_files: List[dict]) -> str:
   let current = 1;
   const total = {total_slides};
   const slideTexts = {json.dumps(slide_texts_map)};
+  let isCheatSheet = false;
+  let isInkSaver = false;
+
+  function toggleCheatSheet() {{
+    isCheatSheet = !isCheatSheet;
+    document.body.classList.toggle("cheatsheet-preview", isCheatSheet);
+    document.body.classList.toggle("print-cheatsheet", isCheatSheet);
+    const btn = document.getElementById("cheatSheetToggle");
+    btn.textContent = isCheatSheet ? "🖼️ Slide-by-Slide Mode" : "📑 4-in-1 Cheat-Sheet";
+    btn.style.borderColor = isCheatSheet ? "var(--accent)" : "var(--line)";
+    if (!isCheatSheet) update();
+  }}
+
+  function toggleInkSaver() {{
+    isInkSaver = !isInkSaver;
+    document.body.classList.toggle("ink-saver", isInkSaver);
+    const btn = document.getElementById("inkSaverToggle");
+    btn.textContent = isInkSaver ? "💧 Ink-Saver: ON" : "💧 Ink-Saver: OFF";
+    btn.style.color = isInkSaver ? "#10B981" : "var(--text)";
+  }}
+
+  function triggerPrint() {{
+    // If not currently in cheatsheet mode, ask or default to standard print
+    window.print();
+  }}
 
   function update() {{
+    if (isCheatSheet) return;
     document.querySelectorAll(".slide-item").forEach(el => {{
       el.classList.toggle("active", parseInt(el.dataset.index) === current);
     }});
