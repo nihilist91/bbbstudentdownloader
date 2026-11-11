@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bbbStudentDownloader / BBB StudyForge v2.0
+bbbStudentDownloader / BBB StudyForge v2.1
 The complete BigBlueButton lecture archiver & AI study suite.
 
 Features:
@@ -35,7 +35,7 @@ def run_cli(args):
     out_dir = args.output or os.path.join(os.path.expanduser("~"), "Downloads", "Lectures")
     cookie = args.cookie or ""
 
-    print(f"\n🚀 BBB StudyForge CLI v2.0")
+    print(f"\n🚀 BBB StudyForge CLI v2.1")
     print(f"Target URL: {url}")
     print(f"Output Directory: {out_dir}\n")
 
@@ -107,7 +107,7 @@ def build_gui():
             super().__init__()
             ctk.set_appearance_mode("dark")
             ctk.set_default_color_theme("blue")
-            self.title("BBB StudyForge 2.0 - BigBlueButton Archiver & Study Suite")
+            self.title("BBB StudyForge 2.1 - BigBlueButton Archiver & Study Suite")
             self.geometry("720x860")
             self.minsize(660, 800)
             self.configure(fg_color=BG)
@@ -385,7 +385,7 @@ def build_gui():
                         data = json.loads(resp.read().decode())
                         tag = data.get("tag_name", "").strip()
                         html_url = data.get("html_url", "https://github.com/nihilist91/bbbstudentdownloader/releases")
-                        curr_version = "v2.0"
+                        curr_version = "v2.1"
                         if tag and tag != curr_version:
                             self.q.put(("update_available", (tag, html_url)))
                 except Exception:
@@ -683,7 +683,7 @@ def acquire_single_instance_lock() -> bool:
                 # Another instance is already running; bring it to foreground
                 try:
                     user32 = ctypes.windll.user32
-                    hwnd = user32.FindWindowW(None, "BBB StudyForge 2.0 - BigBlueButton Archiver & Study Suite")
+                    hwnd = user32.FindWindowW(None, "BBB StudyForge 2.1 - BigBlueButton Archiver & Study Suite")
                     if hwnd:
                         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                         user32.SetForegroundWindow(hwnd)
@@ -708,7 +708,7 @@ def acquire_single_instance_lock() -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="BBB StudyForge 2.0 - BigBlueButton Archiver & AI Study Suite")
+    parser = argparse.ArgumentParser(description="BBB StudyForge 2.1 - BigBlueButton Archiver & AI Study Suite")
     parser.add_argument("--cli", dest="url", help="Download recording via command-line (pass playback URL)")
     parser.add_argument("--output", "-o", help="Target output folder")
     parser.add_argument("--cookie", "-c", help="Session cookie string for authenticated recordings")
@@ -738,4 +738,25 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        crash_log = os.path.join(os.path.expanduser("~"), "bbb_crash.log")
+        with open(crash_log, "w", encoding="utf-8") as f:
+            f.write(f"BBB StudyForge v2.1 Crash Report\n")
+            f.write(f"{'='*50}\n")
+            traceback.print_exc(file=f)
+        # Also try to show a messagebox if possible
+        try:
+            import tkinter
+            from tkinter import messagebox
+            root = tkinter.Tk()
+            root.withdraw()
+            messagebox.showerror("BBB StudyForge - Crash",
+                f"The app crashed unexpectedly.\n\n{type(e).__name__}: {e}\n\n"
+                f"A crash log has been saved to:\n{crash_log}")
+            root.destroy()
+        except Exception:
+            pass
+        sys.exit(1)
