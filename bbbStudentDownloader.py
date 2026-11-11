@@ -675,7 +675,7 @@ def acquire_single_instance_lock() -> bool:
             import ctypes
             kernel32 = ctypes.windll.kernel32
             # Use Local\\ prefix so standard user accounts always have permission
-            mutex_name = "Local\\bbbStudentDownloader_SingleInstance_Mutex"
+            mutex_name = "Local\\bbbStudentDownloader_SingleInstance_Mutex_v2"
             ERROR_ALREADY_EXISTS = 183
             handle = kernel32.CreateMutexW(None, False, mutex_name)
             last_err = kernel32.GetLastError()
@@ -720,6 +720,7 @@ def main():
     else:
         # Prevent running duplicate instances simultaneously
         if not acquire_single_instance_lock():
+            # If an instance is already running, exit quietly
             sys.exit(0)
 
         # Launch Desktop GUI
@@ -728,12 +729,40 @@ def main():
             import customtkinter
             build_gui()
         except (ImportError, ModuleNotFoundError) as e:
-            print(f"\n❌ Error launching GUI: {e}")
-            print("To run the desktop GUI, please install customtkinter:\n    pip install customtkinter")
-            print("Or use the CLI mode:\n    python bbbStudentDownloader.py --cli <URL> [--output <DIR>]\n")
+            msg = (
+                f"Missing GUI dependencies: {e}\n\n"
+                "Please install customtkinter:\n    pip install customtkinter\n\n"
+                "Or use CLI mode: python bbbStudentDownloader.py --cli <URL>"
+            )
+            print(f"\n❌ {msg}\n")
+            try:
+                import tkinter
+                from tkinter import messagebox
+                root = tkinter.Tk()
+                root.withdraw()
+                messagebox.showerror("BBB StudyForge - Startup Error", msg)
+                root.destroy()
+            except Exception:
+                pass
             sys.exit(1)
         except Exception as e:
-            print(f"\n❌ Error: {e}\n")
+            import traceback
+            tb = traceback.format_exc()
+            crash_log = os.path.join(os.path.expanduser("~"), "bbb_crash.log")
+            try:
+                with open(crash_log, "w", encoding="utf-8") as f:
+                    f.write(f"BBB StudyForge Startup Error:\n{tb}\n")
+            except Exception:
+                pass
+            try:
+                import tkinter
+                from tkinter import messagebox
+                root = tkinter.Tk()
+                root.withdraw()
+                messagebox.showerror("BBB StudyForge - Error", f"Fatal Error:\n\n{e}\n\nDetails saved to:\n{crash_log}")
+                root.destroy()
+            except Exception:
+                pass
             sys.exit(1)
 
 
