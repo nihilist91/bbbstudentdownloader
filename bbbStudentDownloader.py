@@ -674,7 +674,8 @@ def acquire_single_instance_lock() -> bool:
         try:
             import ctypes
             kernel32 = ctypes.windll.kernel32
-            mutex_name = "Global\\bbbStudentDownloader_SingleInstance_Mutex"
+            # Use Local\\ prefix so standard user accounts always have permission
+            mutex_name = "Local\\bbbStudentDownloader_SingleInstance_Mutex"
             ERROR_ALREADY_EXISTS = 183
             handle = kernel32.CreateMutexW(None, False, mutex_name)
             last_err = kernel32.GetLastError()
@@ -719,18 +720,6 @@ def main():
     else:
         # Prevent running duplicate instances simultaneously
         if not acquire_single_instance_lock():
-            try:
-                import tkinter
-                from tkinter import messagebox
-                root = tkinter.Tk()
-                root.withdraw()
-                messagebox.showinfo(
-                    "Already Running",
-                    "BBB StudyForge is already open and running.\nSwitched to your active window."
-                )
-                root.destroy()
-            except Exception:
-                pass
             sys.exit(0)
 
         # Launch Desktop GUI
