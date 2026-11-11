@@ -2,7 +2,7 @@
 ; Advanced installer with custom app icon, 64-bit support, modern wizard, and auto-ffmpeg packaging
 
 #define MyAppName "bbbstudentDownloader"
-#define MyAppVersion "2.1"
+#define MyAppVersion "2.1.4"
 #define MyAppPublisher "THE NIHILIST"
 #define MyAppURL "https://github.com/nihilist91/bbbstudentdownloader"
 #define MyAppExeName "bbbStudentDownloader.exe"

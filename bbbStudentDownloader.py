@@ -28,6 +28,8 @@ from typing import Optional
 from core.engine import inspect_recording, process_recording
 from core.ffmpeg_helper import find_ffmpeg, auto_download_ffmpeg
 
+__version__ = "2.1.4"
+
 
 def run_cli(args):
     """Executes a command-line download."""
@@ -35,7 +37,7 @@ def run_cli(args):
     out_dir = args.output or os.path.join(os.path.expanduser("~"), "Downloads", "Lectures")
     cookie = args.cookie or ""
 
-    print(f"\n🚀 BBB StudyForge CLI v2.1")
+    print(f"\n🚀 BBB StudyForge CLI v{__version__}")
     print(f"Target URL: {url}")
     print(f"Output Directory: {out_dir}\n")
 
@@ -107,7 +109,7 @@ def build_gui():
             super().__init__()
             ctk.set_appearance_mode("dark")
             ctk.set_default_color_theme("blue")
-            self.title("BBB StudyForge 2.1 - BigBlueButton Archiver & Study Suite")
+            self.title(f"BBB StudyForge {__version__} - BigBlueButton Archiver & Study Suite")
             self.geometry("720x860")
             self.minsize(660, 800)
             self.configure(fg_color=BG)
@@ -374,7 +376,7 @@ def build_gui():
             self.after(1500, self.poll_clipboard)
 
         def check_updates_background(self):
-            """Checks GitHub Releases API in background for newer versions."""
+            """Checks GitHub Releases API in background for newer versions using semver comparison."""
             def _check():
                 try:
                     import urllib.request
@@ -385,8 +387,17 @@ def build_gui():
                         data = json.loads(resp.read().decode())
                         tag = data.get("tag_name", "").strip()
                         html_url = data.get("html_url", "https://github.com/nihilist91/bbbstudentdownloader/releases")
-                        curr_version = "v2.1"
-                        if tag and tag != curr_version:
+                        
+                        def parse_version(v_str):
+                            clean = v_str.lstrip("v").strip()
+                            parts = []
+                            for p in clean.split("."):
+                                num = "".join(ch for ch in p if ch.isdigit())
+                                if num:
+                                    parts.append(int(num))
+                            return tuple(parts)
+
+                        if tag and parse_version(tag) > parse_version(__version__):
                             self.q.put(("update_available", (tag, html_url)))
                 except Exception:
                     pass
@@ -683,7 +694,7 @@ def acquire_single_instance_lock() -> bool:
                 # Another instance is already running; bring it to foreground
                 try:
                     user32 = ctypes.windll.user32
-                    hwnd = user32.FindWindowW(None, "BBB StudyForge 2.1 - BigBlueButton Archiver & Study Suite")
+                    hwnd = user32.FindWindowW(None, f"BBB StudyForge {__version__} - BigBlueButton Archiver & Study Suite")
                     if hwnd:
                         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                         user32.SetForegroundWindow(hwnd)
@@ -708,7 +719,7 @@ def acquire_single_instance_lock() -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="BBB StudyForge 2.1 - BigBlueButton Archiver & AI Study Suite")
+    parser = argparse.ArgumentParser(description=f"BBB StudyForge {__version__} - BigBlueButton Archiver & AI Study Suite")
     parser.add_argument("--cli", dest="url", help="Download recording via command-line (pass playback URL)")
     parser.add_argument("--output", "-o", help="Target output folder")
     parser.add_argument("--cookie", "-c", help="Session cookie string for authenticated recordings")
