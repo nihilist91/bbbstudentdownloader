@@ -329,7 +329,7 @@ def build_gui():
             overnight_row.pack(fill="x", pady=(0, 10))
             self.shutdown_check = ctk.CTkCheckBox(
                 overnight_row, text="🌙 Overnight Mode: Shutdown / Sleep PC when all downloads finish",
-                variable=self.batch_shutdown, font=self.f_small, progress_color=ACCENT_HOVER
+                variable=self.batch_shutdown, font=self.f_small, fg_color=ACCENT_HOVER, hover_color=ACCENT
             )
             self.shutdown_check.pack(side="left")
 
