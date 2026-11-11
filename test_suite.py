@@ -133,17 +133,19 @@ class TestStudyPackGenerators(unittest.TestCase):
         self.assertIn("Intro text", companion)
 
     def test_ffmetadata_chapters(self):
-        out_file = "/tmp/test_chapters.txt"
+        import tempfile
+        out_file = os.path.join(tempfile.gettempdir(), "test_chapters.txt")
         generate_ffmetadata_file(self.meta, self.slides, out_file)
         self.assertTrue(os.path.isfile(out_file))
-        with open(out_file, "r") as f:
+        with open(out_file, "r", encoding="utf-8") as f:
             content = f.read()
         self.assertIn(";FFMETADATA1", content)
         self.assertIn("[CHAPTER]", content)
         self.assertIn("START=0", content)
         self.assertIn("END=60000", content)
         self.assertIn("title=Slide 1", content)
-        os.remove(out_file)
+        if os.path.isfile(out_file):
+            os.remove(out_file)
 
 
 if __name__ == "__main__":
