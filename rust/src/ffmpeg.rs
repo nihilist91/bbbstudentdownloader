@@ -11,15 +11,15 @@ fn exe_name(base: &str) -> String {
     if cfg!(windows) { format!("{base}.exe") } else { base.to_string() }
 }
 
+#[cfg(unix)]
 fn is_executable(p: &Path) -> bool {
-    if !p.is_file() {
-        return false;
-    }
-    if cfg!(windows) {
-        return true;
-    }
     use std::os::unix::fs::PermissionsExt;
-    fs::metadata(p).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    p.is_file() && fs::metadata(p).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(p: &Path) -> bool {
+    p.is_file()
 }
 
 /// Finds ffmpeg next to the executable, in an `ffmpeg/` subfolder, or on PATH.
@@ -157,8 +157,11 @@ pub fn auto_download_ffmpeg(target_dir: &Path, progress: &dyn Fn(f64, &str)) -> 
         if !found || !target.is_file() {
             return Err("Failed to extract ffmpeg from archive.".into());
         }
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
+        }
         progress(1.0, "FFmpeg installed successfully!");
         Ok(target)
     }

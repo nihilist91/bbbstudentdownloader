@@ -76,6 +76,11 @@ pub fn inspect_recording(url: &str, cookie: Option<&str>) -> Result<RecordingInf
     let meta_xml = fetch_text(&format!("{base}/metadata.xml"), cookie, 10);
     let metadata = parse_metadata(&meta_xml, &bbb.meeting_id);
     let assets = probe_recording_assets(base, cookie);
+    if !assets.metadata && !assets.has_audio && !assets.has_deskshare {
+        return Err(Error::from(
+            "No recording found at this link. Check the URL, or add a session cookie if the recording needs a login.",
+        ));
+    }
 
     let slides = if assets.shapes_svg {
         parse_shapes_svg(&fetch_text(&format!("{base}/shapes.svg"), cookie, 10))
@@ -83,11 +88,11 @@ pub fn inspect_recording(url: &str, cookie: Option<&str>) -> Result<RecordingInf
         Vec::new()
     };
 
-    let messages = if assets.chat_xml {
-        parse_chat_xml(&fetch_text(&format!("{base}/chat.xml"), cookie, 8)).messages
-    } else {
-        Vec::new()
-    };
+    let mut chat_xml = fetch_text(&format!("{base}/chat.xml"), cookie, 15);
+    if chat_xml.is_empty() {
+        chat_xml = fetch_text(&format!("{base}/slides_new.xml"), cookie, 15);
+    }
+    let messages = parse_chat_xml(&chat_xml).messages;
 
     let (cut, has_dead, dead) = detect_lecture_end_time(metadata.duration_seconds, &slides, &messages, 600.0);
 
@@ -125,6 +130,10 @@ pub fn process_recording(
     reporter: &dyn Reporter,
 ) -> Result<PathBuf> {
     let bbb = parse_bbb_url(url)?;
+    fs::create_dir_all(output_parent)?;
+    // ffmpeg resolves paths inside a concat file relative to that file's folder,
+    // so every path handed to ffmpeg must be absolute.
+    let output_parent = &std::path::absolute(output_parent)?;
     let work_dir = output_parent.join(format!("__work_{}", bbb.meeting_id));
     fs::create_dir_all(&work_dir)?;
 
@@ -371,4 +380,33 @@ fn run_pipeline(
     prog(1.0);
     log(&format!("All files saved to: {}", final_dir.display()));
     Ok(final_dir)
+}
+
+/// `~/Downloads/Lectures`, the same default folder as the Python app.
+pub fn default_output_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    home.join("Downloads").join("Lectures")
+}
+
+/// Reads a batch file: one URL per line; blank lines and lines starting with `#` are ignored.
+pub fn read_url_list(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(String::from)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_list_skips_comments_and_blanks() {
+        let list = read_url_list("# semester 1\nhttps://a/x\n\n  https://b/y  \n#https://c/z\n");
+        assert_eq!(list, vec!["https://a/x".to_string(), "https://b/y".to_string()]);
+    }
 }
