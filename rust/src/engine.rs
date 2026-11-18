@@ -83,11 +83,11 @@ pub fn inspect_recording(url: &str, cookie: Option<&str>) -> Result<RecordingInf
         Vec::new()
     };
 
-    let messages = if assets.chat_xml {
-        parse_chat_xml(&fetch_text(&format!("{base}/chat.xml"), cookie, 8)).messages
-    } else {
-        Vec::new()
-    };
+    let mut chat_xml = fetch_text(&format!("{base}/chat.xml"), cookie, 15);
+    if chat_xml.is_empty() {
+        chat_xml = fetch_text(&format!("{base}/slides_new.xml"), cookie, 15);
+    }
+    let messages = parse_chat_xml(&chat_xml).messages;
 
     let (cut, has_dead, dead) = detect_lecture_end_time(metadata.duration_seconds, &slides, &messages, 600.0);
 
@@ -125,6 +125,10 @@ pub fn process_recording(
     reporter: &dyn Reporter,
 ) -> Result<PathBuf> {
     let bbb = parse_bbb_url(url)?;
+    fs::create_dir_all(output_parent)?;
+    // ffmpeg resolves paths inside a concat file relative to that file's folder,
+    // so every path handed to ffmpeg must be absolute.
+    let output_parent = &std::path::absolute(output_parent)?;
     let work_dir = output_parent.join(format!("__work_{}", bbb.meeting_id));
     fs::create_dir_all(&work_dir)?;
 

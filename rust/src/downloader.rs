@@ -20,12 +20,16 @@ pub type FileProgress<'a> = &'a dyn Fn(f64, u64, u64);
 /// Slide progress callback: (fraction 0..1, status message).
 pub type SlideProgress<'a> = &'a dyn Fn(f64, &str);
 
+/// `timeout_secs` limits connecting and each socket read, like Python's urllib timeout.
+/// It is not a deadline for the whole download, so large lecture videos are not cut off.
 fn request(url: &str, cookie: Option<&str>, timeout_secs: u64) -> ureq::Request {
-    let mut req = ureq::get(url)
+    let t = Duration::from_secs(timeout_secs);
+    let agent = ureq::AgentBuilder::new().timeout_connect(t).timeout_read(t).timeout_write(t).build();
+    let mut req = agent
+        .get(url)
         .set("User-Agent", USER_AGENT)
         .set("Accept", "*/*")
-        .set("Accept-Encoding", "identity")
-        .timeout(Duration::from_secs(timeout_secs));
+        .set("Accept-Encoding", "identity");
     if let Some(c) = cookie.filter(|c| !c.is_empty()) {
         req = req.set("Cookie", c);
     }
