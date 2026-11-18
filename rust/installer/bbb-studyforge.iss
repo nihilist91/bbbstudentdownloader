@@ -1,7 +1,7 @@
 ; Inno Setup script for BBB StudyForge (Rust build).
 ;
 ; Build after `cargo build --release --features gui`, from the rust/ folder:
-;   iscc /DAppVersion=2.2.0 installer\bbb-studyforge.iss
+;   iscc /DAppVersion=2.4.0 installer\bbb-studyforge.iss
 ; Expects:
 ;   target\release\bbb-studyforge.exe
 ;   target\release\bbb-studyforge-gui.exe
@@ -9,7 +9,7 @@
 ; Output: installer\Output\bbb-studyforge-<version>-setup.exe
 
 #ifndef AppVersion
-  #define AppVersion "2.2.0"
+  #define AppVersion "2.4.0"
 #endif
 
 #define AppName "BBB StudyForge"

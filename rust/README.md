@@ -68,7 +68,7 @@ publishes them as a GitHub release:
 
 ```bash
 # bump `version` in rust/Cargo.toml first; the build fails if the tag and version differ
-git tag -a rust-v2.2.0 -m "BBB StudyForge 2.2.0" && git push origin rust-v2.2.0
+git tag -a rust-v2.4.0 -m "BBB StudyForge 2.4.0" && git push origin rust-v2.4.0
 ```
 
 To build the installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), run
