@@ -1,6 +1,6 @@
 [package]
 name = "bbb-studyforge"
-version = "2.2.0"
+version = "2.4.0"
 edition = "2021"
 description = "BigBlueButton lecture archiver & AI study suite (Rust port of the Python core)"
 license = "MIT"
