@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>@@PAGE_TITLE@@</title>
+<style>
+  :root {
+    --bg: #0B1020;
+    --card: #141B2D;
+    --field: #1C2540;
+    --line: #2A3658;
+    --accent: #7C5CFF;
+    --accent-hover: #9379FF;
+    --ok: #34D399;
+    --warn: #FBBF24;
+    --text: #F1F5F9;
+    --muted: #8A94A8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { background: var(--bg); color: var(--text); padding: 24px; min-height: 100vh; }
+  .container { max-width: 900px; margin: 0 auto; }
+  header { background: var(--card); padding: 24px; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 20px; }
+  h1 { font-size: 22px; margin-bottom: 6px; color: var(--text); }
+  .sub { font-size: 14px; color: var(--muted); }
+  .badge { display: inline-block; background: var(--field); color: var(--accent-hover); padding: 4px 10px; border-radius: 8px; font-size: 12px; margin-top: 8px; font-weight: 600; }
+
+  .controls { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .search-box { flex: 1; min-width: 240px; position: relative; }
+  .search-box input { width: 100%; background: var(--field); border: 1px solid var(--line); border-radius: 12px; color: var(--text); padding: 12px 16px; font-size: 14px; outline: none; }
+  .search-box input:focus { border-color: var(--accent); }
+
+  select, button { background: var(--field); border: 1px solid var(--line); border-radius: 12px; color: var(--text); padding: 12px 16px; font-size: 14px; cursor: pointer; outline: none; }
+  select:focus, button:hover { border-color: var(--accent); }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .links-panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 20px; }
+  .links-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; }
+  .links-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .link-pill { background: var(--field); color: var(--ok); text-decoration: none; padding: 6px 12px; border-radius: 8px; font-size: 12px; border: 1px solid var(--line); word-break: break-all; }
+  .link-pill:hover { background: var(--line); }
+
+  .chat-stream { display: flex; flex-direction: column; gap: 10px; }
+  .msg-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; transition: transform 0.1s ease; }
+  .msg-card.is-question { border-left: 4px solid var(--warn); }
+  .msg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 12px; }
+  .msg-sender { font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; }
+  .msg-time { font-family: monospace; background: var(--field); padding: 2px 8px; border-radius: 6px; color: var(--muted); }
+  .msg-body { font-size: 14px; line-height: 1.5; color: #E2E8F0; word-break: break-word; }
+  .msg-body a { color: var(--accent-hover); }
+  .highlight { background: rgba(251, 191, 36, 0.3); padding: 0 2px; border-radius: 2px; }
+  .empty-state { text-align: center; color: var(--muted); padding: 40px; font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>💬 @@TITLE@@</h1>
+    <div class="sub">Course: <strong>@@COURSE@@</strong> &bull; Presenter: @@PRESENTER@@ &bull; Date: @@DATE@@</div>
+    <div class="badge" id="statsBadge">@@MSG_COUNT@@ Messages</div>
+  </header>
+
+  <div id="linksContainer" class="links-panel" style="display: @@LINKS_DISPLAY@@;">
+    <div class="links-title">🔗 Shared Links (@@LINKS_COUNT@@)</div>
+    <div class="links-list" id="linksList"></div>
+  </div>
+
+  <div class="controls">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Search message content or sender..." autocomplete="off">
+    </div>
+    <select id="senderFilter">
+      <option value="">All Participants</option>
+      @@SENDER_OPTIONS@@
+    </select>
+    <button id="questionsOnlyBtn" onclick="toggleQuestions()">❓ Questions Only</button>
+    <button onclick="copyAll()">📋 Copy All</button>
+  </div>
+
+  <div class="chat-stream" id="chatStream"></div>
+  <div class="empty-state" id="emptyState" style="display:none;">No messages match your search filter.</div>
+</div>
+
+<script>
+  const messages = @@MESSAGES_JSON@@;
+  const links = @@LINKS_JSON@@;
+  let filterQuestions = false;
+
+  const stream = document.getElementById("chatStream");
+  const searchInput = document.getElementById("searchInput");
+  const senderFilter = document.getElementById("senderFilter");
+  const qBtn = document.getElementById("questionsOnlyBtn");
+  const emptyState = document.getElementById("emptyState");
+  const statsBadge = document.getElementById("statsBadge");
+
+  function escapeHtml(text) {
+    return String(text ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // Render links
+  const linksList = document.getElementById("linksList");
+  links.forEach(u => {
+    const a = document.createElement("a");
+    a.className = "link-pill";
+    a.href = u;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = u;
+    linksList.appendChild(a);
+  });
+
+  function getInitials(name) {
+    return (name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  }
+
+  function render() {
+    const query = searchInput.value.trim().toLowerCase();
+    const sender = senderFilter.value;
+    stream.innerHTML = "";
+    let visibleCount = 0;
+
+    messages.forEach(m => {
+      if (filterQuestions && !m.is_question) return;
+      if (sender && m.sender !== sender) return;
+      if (query && !m.message.toLowerCase().includes(query) && !m.sender.toLowerCase().includes(query)) return;
+
+      visibleCount++;
+      const card = document.createElement("div");
+      card.className = "msg-card" + (m.is_question ? " is-question" : "");
+
+      let bodyHtml = escapeHtml(m.message)
+        .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
+      if (query) {
+        const reg = new RegExp("(" + query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') + ")", "gi");
+        bodyHtml = bodyHtml.replace(reg, '<span class="highlight">$1</span>');
+      }
+
+      card.innerHTML = `
+        <div class="msg-head">
+          <div class="msg-sender">
+            <span class="avatar">${escapeHtml(getInitials(m.sender))}</span>
+            <span>${escapeHtml(m.sender)}</span>
+          </div>
+          <span class="msg-time">${escapeHtml(m.time_str)}</span>
+        </div>
+        <div class="msg-body">${bodyHtml}</div>
+      `;
+      stream.appendChild(card);
+    });
+
+    emptyState.style.display = visibleCount === 0 ? "block" : "none";
+    statsBadge.textContent = `${visibleCount} of ${messages.length} Messages`;
+  }
+
+  function toggleQuestions() {
+    filterQuestions = !filterQuestions;
+    qBtn.classList.toggle("active", filterQuestions);
+    render();
+  }
+
+  function copyAll() {
+    const text = messages.map(m => `[${m.time_str}] ${m.sender}: ${m.message}`).join("\n");
+    navigator.clipboard.writeText(text).then(() => alert("Copied all messages to clipboard!"));
+  }
+
+  searchInput.addEventListener("input", render);
+  senderFilter.addEventListener("change", render);
+  render();
+</script>
+</body>
+</html>
