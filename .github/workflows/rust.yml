@@ -1,0 +1,106 @@
+name: Rust CLI & GUI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['rust-v*']
+    paths:
+      - 'rust/**'
+      - 'assets/**'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    paths:
+      - 'rust/**'
+      - 'assets/**'
+      - '.github/workflows/rust.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: rust
+
+jobs:
+  check:
+    name: Test & lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Unit tests
+        run: cargo test --locked
+
+      - name: Clippy (CLI + GUI)
+        run: cargo clippy --locked --all-targets --features gui -- -D warnings
+
+  release:
+    name: Windows release build
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build CLI and GUI
+        run: cargo build --locked --release --features gui
+
+      - name: Download FFmpeg essentials
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_temp
+          New-Item -ItemType Directory -Force -Path dist/ffmpeg | Out-Null
+          Get-ChildItem ffmpeg_temp -Filter ffmpeg.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination dist/ffmpeg/ffmpeg.exe
+          Get-ChildItem ffmpeg_temp -Filter "LICENSE*" -Recurse | Select-Object -First 1 | Copy-Item -Destination dist/ffmpeg/
+          Remove-Item -Recurse -Force ffmpeg_temp, ffmpeg.zip
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          Copy-Item target/release/bbb-studyforge.exe dist/
+          Copy-Item target/release/bbb-studyforge-gui.exe dist/
+          Copy-Item README.md dist/README.md
+          Copy-Item ../LICENSE dist/LICENSE.txt
+          dist/bbb-studyforge.exe --version
+          $zip = "bbb-studyforge-$version-windows-x64.zip"
+          Compress-Archive -Path dist/* -DestinationPath $zip
+          "ZIP_NAME=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bbb-studyforge-windows-x64
+          path: rust/${{ env.ZIP_NAME }}
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/rust-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: BBB StudyForge (Rust) ${{ github.ref_name }}
+          files: rust/${{ env.ZIP_NAME }}
+          generate_release_notes: true
