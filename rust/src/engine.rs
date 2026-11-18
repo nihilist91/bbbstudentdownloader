@@ -391,13 +391,42 @@ pub fn default_output_dir() -> PathBuf {
     home.join("Downloads").join("Lectures")
 }
 
-/// Reads a batch file: one URL per line; blank lines and lines starting with `#` are ignored.
+/// Reads a list of links: one per line, or several on a line separated by spaces.
+/// Links pasted back-to-back with nothing between them (`...592https://...`) are split apart.
+/// Blank lines and lines starting with `#` are ignored.
 pub fn read_url_list(text: &str) -> Vec<String> {
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(String::from)
-        .collect()
+    let mut urls = Vec::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        for token in line.split_whitespace() {
+            urls.extend(split_glued_urls(token));
+        }
+    }
+    urls
+}
+
+/// Splits a token at every `http://` or `https://` after its start.
+fn split_glued_urls(token: &str) -> Vec<String> {
+    let lower = token.to_ascii_lowercase();
+    let mut cuts: Vec<usize> = Vec::new();
+    for pat in ["https://", "http://"] {
+        let mut from = 0;
+        while let Some(pos) = lower[from..].find(pat) {
+            let at = from + pos;
+            if at > 0 && !cuts.contains(&at) {
+                cuts.push(at);
+            }
+            from = at + pat.len();
+        }
+    }
+    cuts.sort_unstable();
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for cut in cuts {
+        parts.push(token[start..cut].to_string());
+        start = cut;
+    }
+    parts.push(token[start..].to_string());
+    parts.into_iter().filter(|p| !p.is_empty()).collect()
 }
 
 #[cfg(test)]
@@ -408,5 +437,11 @@ mod tests {
     fn url_list_skips_comments_and_blanks() {
         let list = read_url_list("# semester 1\nhttps://a/x\n\n  https://b/y  \n#https://c/z\n");
         assert_eq!(list, vec!["https://a/x".to_string(), "https://b/y".to_string()]);
+    }
+
+    #[test]
+    fn url_list_splits_glued_and_spaced_links() {
+        let list = read_url_list("https://a/p/2.3/id-1791832798592https://b/p/2.3/two  http://c/x\n");
+        assert_eq!(list, vec!["https://a/p/2.3/id-1791832798592", "https://b/p/2.3/two", "http://c/x"]);
     }
 }
