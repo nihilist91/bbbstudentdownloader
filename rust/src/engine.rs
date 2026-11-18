@@ -76,6 +76,11 @@ pub fn inspect_recording(url: &str, cookie: Option<&str>) -> Result<RecordingInf
     let meta_xml = fetch_text(&format!("{base}/metadata.xml"), cookie, 10);
     let metadata = parse_metadata(&meta_xml, &bbb.meeting_id);
     let assets = probe_recording_assets(base, cookie);
+    if !assets.metadata && !assets.has_audio && !assets.has_deskshare {
+        return Err(Error::from(
+            "No recording found at this link. Check the URL, or add a session cookie if the recording needs a login.",
+        ));
+    }
 
     let slides = if assets.shapes_svg {
         parse_shapes_svg(&fetch_text(&format!("{base}/shapes.svg"), cookie, 10))
