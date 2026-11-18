@@ -14,6 +14,7 @@ use eframe::egui::{self, Color32, RichText};
 use bbb_studyforge::engine::{default_output_dir, inspect_recording, process_recording, read_url_list, Options, RecordingInfo, Reporter};
 use bbb_studyforge::ffmpeg::{auto_download_ffmpeg, find_ffmpeg};
 use bbb_studyforge::parser::{format_duration, parse_time_string};
+use bbb_studyforge::update::{check_for_update, NewRelease};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const ACCENT: Color32 = Color32::from_rgb(0x7C, 0x5C, 0xFF);
@@ -112,6 +113,7 @@ enum Event {
     InspectFinished,
     FfmpegProgress(f64, String),
     FfmpegDone(Result<PathBuf, String>),
+    UpdateAvailable(NewRelease),
 }
 
 #[derive(Clone, PartialEq)]
@@ -172,6 +174,7 @@ struct App {
     ffmpeg: Option<PathBuf>,
     ffmpeg_busy: Option<(f64, String)>,
     error_banner: Option<String>,
+    update: Option<NewRelease>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
 }
@@ -180,6 +183,17 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_theme(&cc.egui_ctx);
         let (tx, rx) = channel();
+
+        // Best-effort update check in the background; silent when offline or up to date.
+        {
+            let (tx, ctx) = (tx.clone(), cc.egui_ctx.clone());
+            thread::spawn(move || {
+                if let Some(release) = check_for_update(VERSION) {
+                    let _ = tx.send(Event::UpdateAvailable(release));
+                    ctx.request_repaint();
+                }
+            });
+        }
         Self {
             settings: Settings::load(),
             url_input: String::new(),
@@ -193,6 +207,7 @@ impl App {
             ffmpeg: find_ffmpeg(),
             ffmpeg_busy: None,
             error_banner: None,
+            update: None,
             tx,
             rx,
         }
@@ -402,6 +417,10 @@ impl App {
                     let ok = self.jobs.iter().filter(|j| matches!(j.status, Status::Ready)).count();
                     self.log.push(format!("Inspection finished: {ok} ready."));
                 }
+                Event::UpdateAvailable(r) => {
+                    self.log.push(format!("A new version is available: {} ({})", r.version, r.url));
+                    self.update = Some(r);
+                }
                 Event::FfmpegProgress(f, m) => self.ffmpeg_busy = Some((f, m)),
                 Event::FfmpegDone(res) => {
                     self.ffmpeg_busy = None;
@@ -504,6 +523,16 @@ impl eframe::App for App {
                 });
                 ui.label(RichText::new("Save lecture video, audio, slides, chat and an AI study pack from BigBlueButton recordings.").color(Color32::GRAY));
                 ui.add_space(4.0);
+
+                if let Some(release) = self.update.clone() {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("⬆ Version {} is available.", release.version)).color(OK).strong());
+                        ui.hyperlink_to("Download", &release.url);
+                        if ui.small_button("🗙").on_hover_text("Dismiss").clicked() {
+                            self.update = None;
+                        }
+                    });
+                }
 
                 if let Some(msg) = self.error_banner.clone() {
                     ui.horizontal(|ui| {

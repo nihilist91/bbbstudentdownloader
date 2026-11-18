@@ -8,8 +8,15 @@ The Python app stays as it is. This crate builds two binaries:
 
 ## Download
 
-Windows builds are on the [Releases](../../releases) page as a portable zip with both programs and
-FFmpeg bundled. Unzip anywhere and run `bbb-studyforge-gui.exe`.
+Windows builds are on the [Releases](../../releases) page, with FFmpeg bundled:
+
+- **`bbb-studyforge-<version>-setup.exe`** (recommended): installs for your user without admin rights,
+  adds a Start Menu shortcut (Desktop shortcut optional), and can add the command-line tool to PATH.
+  Uninstall from Windows Settings > Apps. Your settings are kept.
+- **`bbb-studyforge-<version>-windows-x64-portable.zip`**: unzip anywhere and run `bbb-studyforge-gui.exe`.
+- **`SHA256SUMS.txt`**: checksums to verify the downloads.
+
+The app shows a notice when a newer release is available.
 
 ## Build
 
@@ -54,12 +61,18 @@ and what failed, and the exit code is 1 if anything failed.
 ## Releases (CI)
 
 `.github/workflows/rust.yml` runs tests and clippy on Linux and Windows for every push that touches
-`rust/`, then builds a Windows zip (both programs plus FFmpeg) as a workflow artifact. Pushing a tag
-that starts with `rust-v` also publishes it as a GitHub release:
+`rust/`. It then builds the installer and the portable zip, installs the setup silently on the
+Windows runner (checks files, PATH entry, shortcut, that the CLI runs), uninstalls it, and writes
+checksums. The files are kept as a workflow artifact. Pushing a tag that starts with `rust-v` also
+publishes them as a GitHub release:
 
 ```bash
-git tag rust-v2.2.0 && git push origin rust-v2.2.0
+# bump `version` in rust/Cargo.toml first; the build fails if the tag and version differ
+git tag -a rust-v2.2.0 -m "BBB StudyForge 2.2.0" && git push origin rust-v2.2.0
 ```
+
+To build the installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), run
+`cargo build --release --features gui`, then `iscc installer\bbb-studyforge.iss` from `rust/`.
 
 `rust-v*` tags do not trigger the Python release workflow, which uses `v*` tags.
 
@@ -102,5 +115,4 @@ git tag rust-v2.2.0 && git push origin rust-v2.2.0
 ## Not ported yet
 
 From the Python desktop app: single-instance lock, Windows toast notifications, clipboard link
-sniffer, in-app update checker, crash log, overnight shutdown mode, and the Inno Setup installer
-(the Rust release is a portable zip).
+sniffer, crash log, and overnight shutdown mode.

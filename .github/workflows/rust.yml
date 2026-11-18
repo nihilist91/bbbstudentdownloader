@@ -64,8 +64,31 @@ jobs:
         with:
           workspaces: rust
 
+      - name: Read version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if ("${{ github.ref }}" -like "refs/tags/rust-v*") {
+            $tag = "${{ github.ref_name }}".Substring(6)
+            if ($tag -ne $version) {
+              Write-Error "Tag rust-v$tag does not match Cargo.toml version $version. Bump the version in rust/Cargo.toml first."
+              exit 1
+            }
+          }
+
       - name: Build CLI and GUI
         run: cargo build --locked --release --features gui
+
+      - name: Check icon and version info are embedded
+        shell: pwsh
+        run: |
+          foreach ($exe in "bbb-studyforge.exe", "bbb-studyforge-gui.exe") {
+            $info = (Get-Item "target/release/$exe").VersionInfo
+            Write-Host "$exe -> $($info.ProductName) $($info.FileVersion) / $($info.CompanyName)"
+            if ($info.ProductName -ne "BBB StudyForge") { Write-Error "$exe has no embedded version info"; exit 1 }
+          }
+          target/release/bbb-studyforge.exe --version
 
       - name: Download FFmpeg essentials
         shell: pwsh
@@ -81,26 +104,66 @@ jobs:
       - name: Package portable zip
         shell: pwsh
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          New-Item -ItemType Directory -Force -Path out | Out-Null
           Copy-Item target/release/bbb-studyforge.exe dist/
           Copy-Item target/release/bbb-studyforge-gui.exe dist/
           Copy-Item README.md dist/README.md
           Copy-Item ../LICENSE dist/LICENSE.txt
-          dist/bbb-studyforge.exe --version
-          $zip = "bbb-studyforge-$version-windows-x64.zip"
-          Compress-Archive -Path dist/* -DestinationPath $zip
-          "ZIP_NAME=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Compress-Archive -Path dist/* -DestinationPath "out/bbb-studyforge-$env:APP_VERSION-windows-x64-portable.zip"
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          & $iscc /Qp "/DAppVersion=$env:APP_VERSION" installer\bbb-studyforge.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "installer/Output/bbb-studyforge-$env:APP_VERSION-setup.exe" out/
+
+      - name: Test install and uninstall
+        shell: pwsh
+        run: |
+          $setup = "out/bbb-studyforge-$env:APP_VERSION-setup.exe"
+          $dir = Join-Path $env:LOCALAPPDATA "Programs\BBB StudyForge"
+
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', '/TASKS=addtopath' -Wait
+          foreach ($f in "bbb-studyforge.exe", "bbb-studyforge-gui.exe", "ffmpeg\ffmpeg.exe", "unins000.exe") {
+            if (!(Test-Path (Join-Path $dir $f))) { Write-Error "Missing after install: $f"; exit 1 }
+          }
+          & (Join-Path $dir "bbb-studyforge.exe") --version
+          if ($LASTEXITCODE -ne 0) { Write-Error "Installed CLI did not run"; exit 1 }
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if (-not ($userPath -split ';' -contains $dir)) { Write-Error "Install folder was not added to the user PATH"; exit 1 }
+          $shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "BBB StudyForge.lnk"
+          if (!(Test-Path $shortcut)) { Write-Error "Start Menu shortcut missing"; exit 1 }
+          Write-Host "Install OK: files, PATH entry, Start Menu shortcut, CLI runs"
+
+          Start-Process (Join-Path $dir "unins000.exe") -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          for ($i = 0; $i -lt 30 -and (Test-Path (Join-Path $dir "bbb-studyforge.exe")); $i++) { Start-Sleep 1 }
+          if (Test-Path (Join-Path $dir "bbb-studyforge.exe")) { Write-Error "Uninstall left the program behind"; exit 1 }
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if ($userPath -split ';' -contains $dir) { Write-Error "Uninstall did not remove the PATH entry"; exit 1 }
+          if (Test-Path $shortcut) { Write-Error "Uninstall left the Start Menu shortcut"; exit 1 }
+          Write-Host "Uninstall OK: program, PATH entry and shortcut removed"
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem out -File | Where-Object Name -ne "SHA256SUMS.txt" | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content -Encoding ascii out/SHA256SUMS.txt
+          Get-Content out/SHA256SUMS.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bbb-studyforge-windows-x64
-          path: rust/${{ env.ZIP_NAME }}
+          name: bbb-studyforge-${{ env.APP_VERSION }}-windows-x64
+          path: rust/out/*
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/rust-v')
         uses: softprops/action-gh-release@v2
         with:
           name: BBB StudyForge (Rust) ${{ github.ref_name }}
-          files: rust/${{ env.ZIP_NAME }}
+          files: rust/out/*
           generate_release_notes: true
