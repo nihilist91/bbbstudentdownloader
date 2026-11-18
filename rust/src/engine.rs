@@ -376,3 +376,32 @@ fn run_pipeline(
     log(&format!("All files saved to: {}", final_dir.display()));
     Ok(final_dir)
 }
+
+/// `~/Downloads/Lectures`, the same default folder as the Python app.
+pub fn default_output_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    home.join("Downloads").join("Lectures")
+}
+
+/// Reads a batch file: one URL per line; blank lines and lines starting with `#` are ignored.
+pub fn read_url_list(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(String::from)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_list_skips_comments_and_blanks() {
+        let list = read_url_list("# semester 1\nhttps://a/x\n\n  https://b/y  \n#https://c/z\n");
+        assert_eq!(list, vec!["https://a/x".to_string(), "https://b/y".to_string()]);
+    }
+}
