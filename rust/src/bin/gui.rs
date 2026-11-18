@@ -517,13 +517,43 @@ impl eframe::App for App {
                 // Links
                 card(ui, |ui| {
                     ui.label(RichText::new("Recording links").strong());
-                    ui.add(
+                    let links_id = egui::Id::unique("recording_links_input");
+                    let links_box = ui.add(
                         egui::TextEdit::multiline(&mut self.url_input)
-                            .hint_text("https://.../playback/presentation/2.3/<meetingId>\nOne link per line. Paste a whole semester at once.")
+                            .id(links_id)
+                            .hint_text("https://.../playback/presentation/2.3/<meetingId>\nOne link per line. Paste with Ctrl+V, right-click, or the Paste button.")
                             .desired_rows(3)
                             .desired_width(f32::INFINITY),
                     );
+                    // Pastes clipboard text into the links box (it must have focus to receive the paste).
+                    // Starts a new line first so a second link never joins the first.
+                    // Also moves the cursor to the end, so a right-click never pastes into the middle of a link.
+                    let paste_into_links = |ui: &egui::Ui, text: &mut String| {
+                        if !text.is_empty() && !text.ends_with('\n') {
+                            text.push('\n');
+                        }
+                        let ctx = ui.ctx();
+                        let mut state = egui::text_edit::TextEditState::load(ctx, links_id).unwrap_or_default();
+                        let end = egui::text::CCursor::new(egui::text::CharIndex(text.chars().count()));
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                        state.store(ctx, links_id);
+                        ui.memory_mut(|m| m.request_focus(links_id));
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                    };
+                    links_box.context_menu(|ui| {
+                        if ui.button("📋 Paste").clicked() {
+                            paste_into_links(ui, &mut self.url_input);
+                            ui.close();
+                        }
+                        if ui.button("🗙 Clear").clicked() {
+                            self.url_input.clear();
+                            ui.close();
+                        }
+                    });
                     ui.horizontal(|ui| {
+                        if ui.add_enabled(!self.busy, egui::Button::new("📋 Paste")).clicked() {
+                            paste_into_links(ui, &mut self.url_input);
+                        }
                         if ui.add_enabled(!self.busy, egui::Button::new("➕ Add to queue")).clicked() {
                             let n = self.add_urls();
                             if n == 0 {
