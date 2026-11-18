@@ -43,3 +43,6 @@ gui = ["dep:eframe", "dep:rfd", "dep:egui"]
 [profile.release]
 opt-level = 3
 strip = true
+
+[build-dependencies]
+winresource = "0.1.34"

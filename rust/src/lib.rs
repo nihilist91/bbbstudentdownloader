@@ -18,6 +18,7 @@ pub mod model;
 pub mod parser;
 pub mod pdf;
 pub mod study_pack;
+pub mod update;
 pub mod xml;
 
 /// Crate-wide error type. Messages are user-facing, as in the Python version.
